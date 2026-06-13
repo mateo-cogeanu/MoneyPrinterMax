@@ -28,13 +28,13 @@ from app.services import task as tm
 from app.utils import utils
 
 st.set_page_config(
-    page_title="MoneyPrinterTurbo",
-    page_icon="🤖",
+    page_title="MoneyPrinterMax",
+    page_icon="💸",
     layout="wide",
     initial_sidebar_state="auto",
     menu_items={
         "Report a bug": "https://github.com/harry0703/MoneyPrinterTurbo/issues",
-        "About": "# MoneyPrinterTurbo\nSimply provide a topic or keyword for a video, and it will "
+        "About": "# MoneyPrinterMax\nSimply provide a topic or keyword for a video, and it will "
         "automatically generate the video copy, video materials, video subtitles, "
         "and video background music before synthesizing a high-definition short "
         "video.\n\nhttps://github.com/harry0703/MoneyPrinterTurbo",
@@ -46,6 +46,28 @@ streamlit_style = """
 <style>
 h1 {
     padding-top: 0 !important;
+}
+
+div[data-testid="stProgress"] > div > div > div {
+    background: linear-gradient(90deg, #13c8a6 0%, #2f80ed 55%, #f2b705 100%);
+}
+
+.mpt-progress-shell {
+    border: 1px solid rgba(49, 130, 206, 0.22);
+    border-radius: 8px;
+    padding: 1rem 1rem 0.8rem;
+    background: rgba(19, 200, 166, 0.08);
+}
+
+.mpt-progress-title {
+    font-weight: 700;
+    margin-bottom: 0.2rem;
+}
+
+.mpt-progress-copy {
+    color: rgba(49, 51, 63, 0.72);
+    font-size: 0.92rem;
+    margin-bottom: 0.75rem;
 }
 </style>
 """
@@ -88,7 +110,7 @@ locales = utils.load_locales(i18n_dir)
 title_col, lang_col = st.columns([3, 1])
 
 with title_col:
-    st.title(f"MoneyPrinterTurbo v{config.project_version}")
+    st.title(f"MoneyPrinterMax v{config.project_version}")
 
 with lang_col:
     display_languages = []
@@ -179,6 +201,29 @@ def scroll_to_bottom():
     </script>
     """
     st.components.v1.html(js, height=0, width=0)
+
+
+def render_generated_videos(video_files):
+    if not video_files:
+        return
+
+    player_cols = st.columns(len(video_files) * 2 + 1)
+    for i, video_path in enumerate(video_files):
+        with player_cols[i * 2 + 1]:
+            st.video(video_path)
+            try:
+                with open(video_path, "rb") as video_file:
+                    st.download_button(
+                        tr("Download"),
+                        data=video_file,
+                        file_name=os.path.basename(video_path),
+                        mime="video/mp4",
+                        icon=":material/download:",
+                        use_container_width=True,
+                        key=f"download_generated_video_{i}_{os.path.basename(video_path)}",
+                    )
+            except Exception as e:
+                logger.warning(f"failed to render download button for {video_path}: {e}")
 
 
 def init_log():
@@ -1520,37 +1565,40 @@ if start_button:
             if m.url:
                 params.video_materials.append(m)
 
-    log_container = st.empty()
-    log_records = []
-
-    def log_received(msg):
-        if config.ui["hide_log"]:
-            return
-        with log_container:
-            log_records.append(msg)
-            st.code("\n".join(log_records))
-
-    logger.add(log_received)
-
+    progress_container = st.empty()
     st.toast(tr("Generating Video"))
+    with progress_container.container():
+        st.markdown(
+            f"""
+            <div class="mpt-progress-shell">
+                <div class="mpt-progress-title">{tr("Generating Video")}</div>
+                <div class="mpt-progress-copy">{tr("Preparing your final video. This can take a few minutes.")}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        progress_bar = st.progress(12, text=tr("Preparing generation settings"))
+
     logger.info(tr("Start Generating Video"))
     logger.info(utils.to_json(params))
     scroll_to_bottom()
 
+    progress_bar.progress(38, text=tr("Creating video assets"))
     result = tm.start(task_id=task_id, params=params)
+    progress_bar.progress(92, text=tr("Finalizing video output"))
     if not result or "videos" not in result:
+        progress_container.empty()
         st.error(tr("Video Generation Failed"))
         logger.error(tr("Video Generation Failed"))
         scroll_to_bottom()
         st.stop()
 
     video_files = result.get("videos", [])
+    progress_bar.progress(100, text=tr("Video Generation Completed"))
+    progress_container.empty()
     st.success(tr("Video Generation Completed"))
     try:
-        if video_files:
-            player_cols = st.columns(len(video_files) * 2 + 1)
-            for i, url in enumerate(video_files):
-                player_cols[i * 2 + 1].video(url)
+        render_generated_videos(video_files)
     except Exception:
         pass
 

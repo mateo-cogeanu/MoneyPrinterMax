@@ -4,6 +4,28 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 
 ## 2026-06-13
 
+### MoneyPrinterMax Branding
+
+- Updated the root README title from `MoneyPrinterTurbo` to `MoneyPrinterMax`.
+- Removed the Arabic language link from the root README language selector.
+- Updated the Streamlit browser page title and app heading to use `MoneyPrinterMax`.
+
+### WebUI: Cleaner Generation Progress
+
+- Removed the large on-screen log block that appeared after pressing `Generate Video`.
+- Added a compact themed progress panel that appears while video generation is running.
+- The progress panel uses staged generation text and a custom app-themed progress bar.
+- The progress panel is cleared automatically when generation finishes or fails.
+- Kept logs going to the normal application logger instead of displaying them as a giant code block in the WebUI.
+
+### WebUI: Video Download Button
+
+- Added a download button below each generated video preview.
+- The download button uses a Material download icon instead of an emoji.
+- The button text appears to the right of the icon as `Download`.
+- The downloaded filename matches the generated video filename.
+- The download MIME type is set to `video/mp4`.
+
 ### Project Direction
 
 - Added `AGENTS.md` to define the working goals for this project.
