@@ -60,7 +60,7 @@
     "No Background Music": "No Background Music",
     "Random Background Music": "Random Background Music",
     "Custom Background Music": "Custom Background Music",
-    "Custom Background Music File": "Please enter the file path for custom background music:",
+    "Custom Background Music File": "Upload custom background music:",
     "Background Music Volume": "Background Music Volume (0.2 represents 20%, background music should not be too loud)",
     "Subtitle Settings": "**Subtitle Settings**",
     "Enable Subtitles": "Enable Subtitles (If unchecked, the settings below will not take effect)",

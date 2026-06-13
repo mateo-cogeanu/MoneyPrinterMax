@@ -691,6 +691,7 @@ params.match_materials_to_script = bool(
 )
 uploaded_files = []
 uploaded_audio_file = None
+uploaded_bgm_file = None
 
 with left_panel:
     with st.container(border=True):
@@ -1207,15 +1208,14 @@ with middle_panel:
 
         # Show or hide components based on the selection
         if params.bgm_type == "custom":
-            custom_bgm_file = st.text_input(
-                tr("Custom Background Music File"), key="custom_bgm_file_input"
+            uploaded_bgm_file = st.file_uploader(
+                tr("Custom Background Music File"),
+                type=["mp3", "MP3"],
+                accept_multiple_files=False,
+                key="custom_bgm_file_uploader",
             )
-            if custom_bgm_file:
-                # 这里不直接用 os.path.exists 判断，因为用户常见输入是
-                # output000.mp3，这个文件名需要由服务层映射到 resource/songs
-                # 目录后再校验。服务层会统一限制目录和文件类型，避免任意路径读取。
-                params.bgm_file = custom_bgm_file.strip()
-                # st.write(f":red[已选择自定义背景音乐]：**{custom_bgm_file}**")
+            if uploaded_bgm_file:
+                st.audio(uploaded_bgm_file, format="audio/mp3")
         params.bgm_volume = st.selectbox(
             tr("Background Music Volume"),
             options=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
@@ -1466,6 +1466,15 @@ if start_button:
         st.error(tr("Please Enter the Coverr API Key"))
         scroll_to_bottom()
         st.stop()
+
+    if uploaded_bgm_file:
+        _, bgm_ext = os.path.splitext(os.path.basename(uploaded_bgm_file.name))
+        bgm_ext = bgm_ext.lower() or ".mp3"
+        bgm_filename = f"custom-bgm-{task_id}{bgm_ext}"
+        custom_bgm_path = os.path.join(utils.song_dir(), bgm_filename)
+        with open(custom_bgm_path, "wb") as f:
+            f.write(uploaded_bgm_file.getbuffer())
+        params.bgm_file = bgm_filename
 
     if uploaded_audio_file:
         task_dir = utils.task_dir(task_id)
