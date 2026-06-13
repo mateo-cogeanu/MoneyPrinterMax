@@ -86,7 +86,7 @@ class TestSubtitleBackgroundSettings(unittest.TestCase):
             Path(__file__).parent.parent.parent
             / "resource"
             / "fonts"
-            / "MicrosoftYaHeiBold.ttc"
+            / "Roboto.ttf"
         )
 
         wrapped_text, _ = video.wrap_text(

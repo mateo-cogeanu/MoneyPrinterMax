@@ -1,7 +1,8 @@
+import base64
+import html
 import os
 import sys
-import webbrowser
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import requests
 import streamlit as st
@@ -69,6 +70,16 @@ div[data-testid="stProgress"] > div > div > div {
     font-size: 0.92rem;
     margin-bottom: 0.75rem;
 }
+
+.mpt-font-preview {
+    border: 1px solid rgba(49, 130, 206, 0.22);
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+    margin: 0.35rem 0 1rem;
+    background: rgba(19, 200, 166, 0.08);
+    font-size: 1.35rem;
+    line-height: 1.35;
+}
 </style>
 """
 st.markdown(streamlit_style, unsafe_allow_html=True)
@@ -87,6 +98,10 @@ if "video_script" not in st.session_state:
     st.session_state["video_script"] = ""
 if "video_terms" not in st.session_state:
     st.session_state["video_terms"] = ""
+if "video_title" not in st.session_state:
+    st.session_state["video_title"] = ""
+if "video_description" not in st.session_state:
+    st.session_state["video_description"] = ""
 if "video_script_prompt" not in st.session_state:
     st.session_state["video_script_prompt"] = ""
 if "custom_system_prompt" not in st.session_state:
@@ -156,6 +171,36 @@ def get_all_fonts():
     return fonts
 
 
+def render_font_preview(font_name: str):
+    if not font_name:
+        return
+
+    font_path = os.path.abspath(os.path.join(font_dir, font_name))
+    fonts_root = os.path.abspath(font_dir)
+    if not font_path.startswith(fonts_root + os.sep) or not os.path.exists(font_path):
+        return
+
+    with open(font_path, "rb") as font_file:
+        encoded_font = base64.b64encode(font_file.read()).decode("utf-8")
+
+    family = os.path.splitext(os.path.basename(font_name))[0].replace(" ", "-")
+    preview_text = "This is how your subtitles will look."
+    st.markdown(
+        f"""
+        <style>
+        @font-face {{
+            font-family: "{family}";
+            src: url(data:font/ttf;base64,{encoded_font}) format("truetype");
+        }}
+        </style>
+        <div class="mpt-font-preview" style="font-family: '{family}', sans-serif;">
+            {html.escape(preview_text)}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def get_all_songs():
     songs = []
     for root, dirs, files in os.walk(song_dir):
@@ -163,27 +208,6 @@ def get_all_songs():
             if file.endswith(".mp3"):
                 songs.append(file)
     return songs
-
-
-def open_task_folder(task_id):
-    try:
-        # task_id 应始终是服务端生成的 UUID。这里先做格式校验，避免异常值
-        # 通过路径拼接访问任务目录之外的位置，也避免后续打开目录时触发
-        # 平台 shell 对特殊字符的解释。
-        normalized_task_id = str(UUID(str(task_id)))
-        tasks_root = os.path.abspath(os.path.join(root_dir, "storage", "tasks"))
-        path = os.path.abspath(os.path.join(tasks_root, normalized_task_id))
-
-        # 即使 UUID 校验通过，也再次确认最终路径仍在任务根目录内，避免
-        # 未来调用方调整 task_id 来源时引入路径穿越风险。
-        if not path.startswith(tasks_root + os.sep):
-            logger.warning(f"invalid task folder path: {path}")
-            return
-
-        if os.path.isdir(path):
-            webbrowser.open(f"file://{path}")
-    except Exception as e:
-        logger.error(e)
 
 
 def scroll_to_bottom():
@@ -725,7 +749,7 @@ if not config.app.get("hide_config", False):
             save_keys_to_config("coverr_api_keys", coverr_api_key)
 
 llm_provider = config.app.get("llm_provider", "").lower()
-panel = st.columns(3)
+panel = st.columns([1, 1.18, 1])
 left_panel = panel[0]
 middle_panel = panel[1]
 right_panel = panel[2]
@@ -843,6 +867,40 @@ with left_panel:
 
         params.video_terms = st.text_area(
             tr("Video Keywords"), value=st.session_state["video_terms"]
+        )
+
+        if st.button(
+            tr("Generate Title and Description"),
+            key="auto_generate_title_description",
+        ):
+            if not params.video_subject and not params.video_script:
+                st.error(tr("Video Script and Subject Cannot Both Be Empty"))
+                st.stop()
+
+            with st.spinner(tr("Generating Title and Description")):
+                metadata = llm.generate_social_metadata(
+                    video_subject=params.video_subject,
+                    video_script=params.video_script,
+                    language=params.video_language or llm.DEFAULT_SOCIAL_LANGUAGE,
+                    platform=llm.DEFAULT_SOCIAL_PLATFORM,
+                )
+                st.session_state["video_title"] = metadata.get("title", "")
+                description_parts = [metadata.get("caption", "")]
+                hashtags = metadata.get("hashtags", [])
+                if hashtags:
+                    description_parts.append(" ".join(hashtags))
+                st.session_state["video_description"] = "\n\n".join(
+                    part for part in description_parts if part
+                )
+
+        st.text_input(
+            tr("Video Title"),
+            key="video_title",
+        )
+        st.text_area(
+            tr("Video Description"),
+            key="video_description",
+            height=140,
         )
 
 with middle_panel:
@@ -963,11 +1021,11 @@ with middle_panel:
 
             video_codec_options = [
                 ("libx264 (CPU)", "libx264"),
+                ("Apple Metal Accelerated (h264_videotoolbox)", "h264_videotoolbox"),
                 ("NVIDIA NVENC (h264_nvenc)", "h264_nvenc"),
                 ("AMD AMF (h264_amf)", "h264_amf"),
                 ("Intel QSV (h264_qsv)", "h264_qsv"),
                 ("Windows MediaFoundation (h264_mf)", "h264_mf"),
-                ("macOS VideoToolbox (h264_videotoolbox)", "h264_videotoolbox"),
             ]
             saved_video_codec = config.app.get("video_codec", "libx264")
             saved_video_codec_values = [item[1] for item in video_codec_options]
@@ -1272,14 +1330,15 @@ with right_panel:
         st.write(tr("Subtitle Settings"))
         params.subtitle_enabled = st.checkbox(tr("Enable Subtitles"), value=True)
         font_names = get_all_fonts()
-        saved_font_name = config.ui.get("font_name", "MicrosoftYaHeiBold.ttc")
-        saved_font_name_index = 0
-        if saved_font_name in font_names:
-            saved_font_name_index = font_names.index(saved_font_name)
+        saved_font_name = config.ui.get("font_name", "Roboto.ttf")
+        if saved_font_name not in font_names:
+            saved_font_name = "Roboto.ttf" if "Roboto.ttf" in font_names else font_names[0]
+        saved_font_name_index = font_names.index(saved_font_name)
         params.font_name = st.selectbox(
             tr("Font"), font_names, index=saved_font_name_index
         )
         config.ui["font_name"] = params.font_name
+        render_font_preview(params.font_name)
 
         subtitle_positions = [
             (tr("Top"), "top"),
@@ -1379,110 +1438,6 @@ with right_panel:
             config.ui["rounded_subtitle_background"] = (
                 params.rounded_subtitle_background
             )
-    with st.expander(tr("Click to show API Key management"), expanded=False):
-        st.subheader(tr("Manage Pexels, Pixabay and Coverr API Keys"))
-
-        col1, col2, col3 = st.tabs([
-            tr("Pexels API Keys"),
-            tr("Pixabay API Keys"),
-            tr("Coverr API Keys"),
-        ])
-
-        with col1:
-            st.subheader(tr("Pexels API Keys"))
-            if config.app["pexels_api_keys"]:
-                st.write(tr("Current Keys:"))
-                for key in config.app["pexels_api_keys"]:
-                    st.code(key)
-            else:
-                st.info(tr("No Pexels API Keys currently"))
-
-            new_key = st.text_input(tr("Add Pexels API Key"), key="pexels_new_key")
-            if st.button(tr("Add Pexels API Key")):
-                if new_key and new_key not in config.app["pexels_api_keys"]:
-                    config.app["pexels_api_keys"].append(new_key)
-                    config.save_config()
-                    st.success(tr("Pexels API Key added successfully"))
-                elif new_key in config.app["pexels_api_keys"]:
-                    st.warning(tr("This API Key already exists"))
-                else:
-                    st.error(tr("Please enter a valid API Key"))
-
-            if config.app["pexels_api_keys"]:
-                delete_key = st.selectbox(
-                    tr("Select Pexels API Key to delete"), config.app["pexels_api_keys"], key="pexels_delete_key"
-                )
-                if st.button(tr("Delete Selected Pexels API Key")):
-                    config.app["pexels_api_keys"].remove(delete_key)
-                    config.save_config()
-                    st.success(tr("Pexels API Key deleted successfully"))
-
-        with col2:
-            st.subheader(tr("Pixabay API Keys"))
-
-            if config.app["pixabay_api_keys"]:
-                st.write(tr("Current Keys:"))
-                for key in config.app["pixabay_api_keys"]:
-                    st.code(key)
-            else:
-                st.info(tr("No Pixabay API Keys currently"))
-
-            new_key = st.text_input(tr("Add Pixabay API Key"), key="pixabay_new_key")
-            if st.button(tr("Add Pixabay API Key")):
-                if new_key and new_key not in config.app["pixabay_api_keys"]:
-                    config.app["pixabay_api_keys"].append(new_key)
-                    config.save_config()
-                    st.success(tr("Pixabay API Key added successfully"))
-                elif new_key in config.app["pixabay_api_keys"]:
-                    st.warning(tr("This API Key already exists"))
-                else:
-                    st.error(tr("Please enter a valid API Key"))
-
-            if config.app["pixabay_api_keys"]:
-                delete_key = st.selectbox(
-                    tr("Select Pixabay API Key to delete"), config.app["pixabay_api_keys"], key="pixabay_delete_key"
-                )
-                if st.button(tr("Delete Selected Pixabay API Key")):
-                    config.app["pixabay_api_keys"].remove(delete_key)
-                    config.save_config()
-                    st.success(tr("Pixabay API Key deleted successfully"))
-
-        with col3:
-            st.subheader(tr("Coverr API Keys"))
-
-            # 与 pexels/pixabay 不同,coverr_api_keys 是 PR 新增配置项,
-            # 老用户的 config.toml 不一定包含,这里先兜底初始化为空列表,
-            # 防止下面 .append / 索引访问触发 KeyError。
-            if "coverr_api_keys" not in config.app or config.app["coverr_api_keys"] is None:
-                config.app["coverr_api_keys"] = []
-
-            if config.app["coverr_api_keys"]:
-                st.write(tr("Current Keys:"))
-                for key in config.app["coverr_api_keys"]:
-                    st.code(key)
-            else:
-                st.info(tr("No Coverr API Keys currently"))
-
-            new_key = st.text_input(tr("Add Coverr API Key"), key="coverr_new_key")
-            if st.button(tr("Add Coverr API Key")):
-                if new_key and new_key not in config.app["coverr_api_keys"]:
-                    config.app["coverr_api_keys"].append(new_key)
-                    config.save_config()
-                    st.success(tr("Coverr API Key added successfully"))
-                elif new_key in config.app["coverr_api_keys"]:
-                    st.warning(tr("This API Key already exists"))
-                else:
-                    st.error(tr("Please enter a valid API Key"))
-
-            if config.app["coverr_api_keys"]:
-                delete_key = st.selectbox(
-                    tr("Select Coverr API Key to delete"), config.app["coverr_api_keys"], key="coverr_delete_key"
-                )
-                if st.button(tr("Delete Selected Coverr API Key")):
-                    config.app["coverr_api_keys"].remove(delete_key)
-                    config.save_config()
-                    st.success(tr("Coverr API Key deleted successfully"))
-
 start_button = st.button(tr("Generate Video"), use_container_width=True, type="primary")
 if start_button:
     config.save_config()
@@ -1602,7 +1557,6 @@ if start_button:
     except Exception:
         pass
 
-    open_task_folder(task_id)
     logger.info(tr("Video Generation Completed"))
     scroll_to_bottom()
 

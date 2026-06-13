@@ -4,6 +4,44 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 
 ## 2026-06-13
 
+### WebUI: Post-Generation Behavior
+
+- Stopped opening the generated task folder in a new `file://` browser tab after video generation completes.
+- Generated videos continue to appear directly in the WebUI with the existing download button underneath.
+
+### WebUI: Video Encoder Options
+
+- Added a clearer Apple hardware acceleration option in Advanced Video Settings:
+  - `Apple Metal Accelerated (h264_videotoolbox)`
+- Kept the existing codec fallback behavior, so unsupported hardware encoders fall back to `libx264`.
+- Updated `config.example.toml` comments to call out the macOS hardware acceleration path.
+
+### WebUI: Google Fonts And Preview
+
+- Replaced the bundled subtitle fonts with Google Fonts:
+  - `Roboto.ttf`
+  - `Montserrat.ttf`
+  - `Poppins-Regular.ttf`
+  - `Oswald.ttf`
+  - `Merriweather.ttf`
+  - `PlayfairDisplay.ttf`
+- Removed the previous oversized font files from `resource/fonts`.
+- Updated subtitle font defaults from the old bundled fonts to `Roboto.ttf`.
+- Added a live subtitle font preview under the font selector.
+- Updated tests and schema defaults that referenced the old font files.
+
+### WebUI: Simpler Settings Layout
+
+- Removed the duplicate API key management expander from the right-side settings area.
+- Kept API key management in the general settings menu at the top.
+- Widened the center settings column so Audio Settings has more horizontal room after removing the duplicate panel.
+
+### WebUI: Title And Description Generation
+
+- Added a `Generate Title and Description` button in Video Script Settings after script and keyword generation.
+- Reused the existing LLM social metadata helper to generate a short-video title, description, and hashtags.
+- Added editable `Video Title` and `Video Description` fields so generated copy can be reviewed and adjusted before use.
+
 ### MoneyPrinterMax Branding
 
 - Updated the root README title from `MoneyPrinterTurbo` to `MoneyPrinterMax`.
