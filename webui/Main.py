@@ -323,6 +323,27 @@ support_locales = [
     "tr-TR",
 ]
 
+SUBTITLE_FONT_LABELS = {
+    "ArchivoBlack-Regular.ttf": "Archivo Black",
+    "BarlowCondensed-Bold.ttf": "Barlow Condensed Bold",
+    "Anton-Regular.ttf": "Anton",
+    "PaytoneOne-Regular.ttf": "Paytone One",
+    "LilitaOne-Regular.ttf": "Lilita One",
+    "Montserrat.ttf": "Montserrat",
+    "Oswald.ttf": "Oswald",
+    "Poppins-Regular.ttf": "Poppins",
+    "Roboto.ttf": "Roboto",
+    "Merriweather.ttf": "Merriweather",
+    "PlayfairDisplay.ttf": "Playfair Display",
+}
+ENGAGING_SUBTITLE_FONTS = [
+    "ArchivoBlack-Regular.ttf",
+    "BarlowCondensed-Bold.ttf",
+    "Anton-Regular.ttf",
+    "PaytoneOne-Regular.ttf",
+    "LilitaOne-Regular.ttf",
+]
+
 
 def get_all_fonts():
     fonts = []
@@ -330,8 +351,18 @@ def get_all_fonts():
         for file in files:
             if file.endswith(".ttf") or file.endswith(".ttc"):
                 fonts.append(file)
-    fonts.sort()
-    return fonts
+    preferred_fonts = [font for font in ENGAGING_SUBTITLE_FONTS if font in fonts]
+    remaining_fonts = sorted(
+        (font for font in fonts if font not in preferred_fonts),
+        key=lambda font: SUBTITLE_FONT_LABELS.get(font, font).casefold(),
+    )
+    return preferred_fonts + remaining_fonts
+
+
+def format_subtitle_font_name(font_name: str) -> str:
+    return SUBTITLE_FONT_LABELS.get(
+        font_name, os.path.splitext(font_name)[0].replace("-", " ")
+    )
 
 
 def render_font_preview(font_name: str):
@@ -881,6 +912,7 @@ def render_full_auto_mode():
             tr("Font"),
             font_names,
             index=font_names.index(saved_font_name),
+            format_func=format_subtitle_font_name,
             key="full_auto_font_name",
         )
         render_font_preview(auto_params.font_name)
@@ -2256,7 +2288,10 @@ with right_panel:
             saved_font_name = "Roboto.ttf" if "Roboto.ttf" in font_names else font_names[0]
         saved_font_name_index = font_names.index(saved_font_name)
         params.font_name = st.selectbox(
-            tr("Font"), font_names, index=saved_font_name_index
+            tr("Font"),
+            font_names,
+            index=saved_font_name_index,
+            format_func=format_subtitle_font_name,
         )
         config.ui["font_name"] = params.font_name
         render_font_preview(params.font_name)

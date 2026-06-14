@@ -216,6 +216,19 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 - Added focused regression tests for local voice dispatch, model asset reuse, word timing output, and repeated-word positioning.
 - Reworked YouTube OAuth URL construction to remain valid on the project's supported Python 3.11 runtime.
 
+### Engaging Subtitle Fonts
+
+- Added five heavier Google Fonts selected specifically for readable, energetic short-video subtitles:
+  - `Archivo Black`
+  - `Barlow Condensed Bold`
+  - `Anton`
+  - `Paytone One`
+  - `Lilita One`
+- Added the matching Open Font License files under `resource/fonts/licenses`.
+- Placed the new subtitle-focused fonts first in the font picker while retaining all existing fonts.
+- Replaced raw font filenames in Create Video and Full Auto with clean display names.
+- Kept the existing live font preview so every new face can be inspected before generation.
+
 ### Files Changed
 
 - `AGENTS.md`
