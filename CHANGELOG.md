@@ -57,6 +57,7 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 - Reworked stock candidate selection into one batched AI selection call per search term, including candidates with exact keyword matches, while keeping the closest usable fallback visuals when an exact stock match is unavailable.
 - Fixed AI-rejected stock candidates being accidentally appended back into the usable pool after ranking.
 - Added AI-generated backup stock searches when the accepted material pool is shorter than the narration, reducing repeated clip looping in longer generated videos.
+- Added multi-provider stock search so configured Pexels, Pixabay, and Coverr APIs can be selected together and merged into one larger AI-ranked candidate pool in both Create Video and Full Auto.
 
 ### WebUI: YouTube Automation Fixes
 

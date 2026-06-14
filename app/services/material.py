@@ -481,6 +481,47 @@ def save_video(video_url: str, save_dir: str = "") -> str:
     return ""
 
 
+def normalize_stock_sources(source: str) -> List[str]:
+    valid_sources = {"pexels", "pixabay", "coverr"}
+    sources = []
+    for raw_source in str(source or "").split(","):
+        source_name = raw_source.strip().lower()
+        if source_name in valid_sources and source_name not in sources:
+            sources.append(source_name)
+    return sources
+
+
+def build_stock_searcher(source: str):
+    source_searchers = {
+        "pexels": search_videos_pexels,
+        "pixabay": search_videos_pixabay,
+        "coverr": search_videos_coverr,
+    }
+    sources = normalize_stock_sources(source)
+    if not sources:
+        raise ValueError(f"no valid stock video source selected: {source}")
+
+    def search_selected_sources(
+        search_term: str,
+        minimum_duration: int,
+        video_aspect: VideoAspect = VideoAspect.portrait,
+    ) -> List[MaterialInfo]:
+        combined_items = []
+        for source_name in sources:
+            provider_items = source_searchers[source_name](
+                search_term=search_term,
+                minimum_duration=minimum_duration,
+                video_aspect=video_aspect,
+            )
+            logger.info(
+                f"found {len(provider_items)} {source_name} videos for '{search_term}'"
+            )
+            combined_items.extend(provider_items)
+        return combined_items
+
+    return search_selected_sources
+
+
 def download_videos(
     task_id: str,
     search_terms: List[str],
@@ -491,11 +532,7 @@ def download_videos(
     max_clip_duration: int = 5,
     match_script_order: bool = False,
 ) -> List[str]:
-    search_videos = search_videos_pexels
-    if source == "pixabay":
-        search_videos = search_videos_pixabay
-    elif source == "coverr":
-        search_videos = search_videos_coverr
+    search_videos = build_stock_searcher(source)
 
     material_directory = config.app.get("material_directory", "").strip()
     if material_directory == "task":

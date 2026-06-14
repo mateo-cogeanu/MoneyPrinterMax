@@ -138,6 +138,57 @@ class TestMaterialTlsVerification(unittest.TestCase):
 
         self.assertEqual(result, [])
 
+    def test_build_stock_searcher_combines_selected_providers(self):
+        provider_results = {
+            "pexels": material.MaterialInfo(
+                provider="pexels",
+                url="https://v.example/pexels.mp4",
+                duration=3,
+            ),
+            "pixabay": material.MaterialInfo(
+                provider="pixabay",
+                url="https://v.example/pixabay.mp4",
+                duration=3,
+            ),
+            "coverr": material.MaterialInfo(
+                provider="coverr",
+                url="https://v.example/coverr.mp4",
+                duration=3,
+            ),
+        }
+
+        with (
+            patch.object(
+                material,
+                "search_videos_pexels",
+                return_value=[provider_results["pexels"]],
+            ) as pexels,
+            patch.object(
+                material,
+                "search_videos_pixabay",
+                return_value=[provider_results["pixabay"]],
+            ) as pixabay,
+            patch.object(
+                material,
+                "search_videos_coverr",
+                return_value=[provider_results["coverr"]],
+            ) as coverr,
+        ):
+            search = material.build_stock_searcher("pexels,pixabay,coverr")
+            results = search(
+                search_term="kitchen cleaning",
+                minimum_duration=3,
+                video_aspect=material.VideoAspect.portrait,
+            )
+
+        self.assertEqual(
+            [item.provider for item in results],
+            ["pexels", "pixabay", "coverr"],
+        )
+        pexels.assert_called_once()
+        pixabay.assert_called_once()
+        coverr.assert_called_once()
+
     def test_download_videos_can_round_robin_terms_in_script_order(self):
         """
         开启按文案顺序匹配素材后，不能让第一个关键词的多个候选先把

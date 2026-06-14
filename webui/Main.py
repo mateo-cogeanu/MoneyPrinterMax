@@ -97,6 +97,45 @@ i18n_dir = os.path.join(root_dir, "webui", "i18n")
 config_file = os.path.join(root_dir, "webui", ".streamlit", "webui.toml")
 system_locale = utils.get_system_locale()
 
+STOCK_SOURCE_CONFIG_KEYS = {
+    "pexels": "pexels_api_keys",
+    "pixabay": "pixabay_api_keys",
+    "coverr": "coverr_api_keys",
+}
+STOCK_SOURCE_LABEL_KEYS = {
+    "pexels": "Pexels",
+    "pixabay": "Pixabay",
+    "coverr": "Coverr",
+}
+
+
+def normalize_stock_sources(source: str) -> list[str]:
+    sources = []
+    for raw_source in str(source or "").split(","):
+        source_name = raw_source.strip().lower()
+        if (
+            source_name in STOCK_SOURCE_CONFIG_KEYS
+            and source_name not in sources
+        ):
+            sources.append(source_name)
+    return sources
+
+
+def configured_stock_sources() -> list[str]:
+    return [
+        source_name
+        for source_name, config_key in STOCK_SOURCE_CONFIG_KEYS.items()
+        if config.app.get(config_key, "")
+    ]
+
+
+def missing_stock_source_keys(source: str) -> list[str]:
+    return [
+        source_name
+        for source_name in normalize_stock_sources(source)
+        if not config.app.get(STOCK_SOURCE_CONFIG_KEYS[source_name], "")
+    ]
+
 
 if "video_subject" not in st.session_state:
     st.session_state["video_subject"] = ""
@@ -708,18 +747,31 @@ def render_full_auto_mode():
             key="full_auto_script_prompt",
         ).strip()
 
-        video_sources = [
-            (tr("Pexels"), "pexels"),
-            (tr("Pixabay"), "pixabay"),
-            (tr("Coverr"), "coverr"),
-        ]
-        selected_source_index = st.selectbox(
-            tr("Video Source"),
-            options=range(len(video_sources)),
-            format_func=lambda index: video_sources[index][0],
-            key="full_auto_video_source",
+        available_stock_sources = configured_stock_sources()
+        default_full_auto_sources = normalize_stock_sources(
+            st.session_state.get(
+                "full_auto_video_sources",
+                config.app.get("video_source", "pexels"),
+            )
         )
-        auto_params.video_source = video_sources[selected_source_index][1]
+        default_full_auto_sources = [
+            source_name
+            for source_name in default_full_auto_sources
+            if source_name in available_stock_sources
+        ]
+        if not default_full_auto_sources:
+            default_full_auto_sources = available_stock_sources
+        selected_stock_sources = st.multiselect(
+            tr("Stock Video APIs"),
+            options=available_stock_sources,
+            default=default_full_auto_sources,
+            format_func=lambda source_name: tr(
+                STOCK_SOURCE_LABEL_KEYS[source_name]
+            ),
+            help=tr("Stock Video APIs Help"),
+            key="full_auto_video_sources",
+        )
+        auto_params.video_source = ",".join(selected_stock_sources)
         auto_params.video_concat_mode = VideoConcatMode.random
         auto_params.video_transition_mode = VideoTransitionMode.none
         auto_params.video_clip_duration = st.selectbox(
@@ -907,14 +959,8 @@ def render_full_auto_mode():
         if not youtube_upload.token_exists():
             st.error(tr("YouTube Token Missing"))
             st.stop()
-        if auto_params.video_source == "pexels" and not config.app.get("pexels_api_keys", ""):
-            st.error(tr("Please Enter the Pexels API Key"))
-            st.stop()
-        if auto_params.video_source == "pixabay" and not config.app.get("pixabay_api_keys", ""):
-            st.error(tr("Please Enter the Pixabay API Key"))
-            st.stop()
-        if auto_params.video_source == "coverr" and not config.app.get("coverr_api_keys", ""):
-            st.error(tr("Please Enter the Coverr API Key"))
+        if not normalize_stock_sources(auto_params.video_source):
+            st.error(tr("Please Select at Least One Stock Video API"))
             st.stop()
         if schedule[0]["publish_at"] <= datetime.now().astimezone() + timedelta(minutes=15):
             st.error(tr("Publish Time Must Be Future"))
@@ -1740,6 +1786,7 @@ with middle_panel:
             (tr("Pexels"), "pexels"),
             (tr("Pixabay"), "pixabay"),
             (tr("Coverr"), "coverr"),
+            (tr("Multiple Stock APIs"), "stock_multi"),
             (tr("Local file"), "local"),
             (tr("TikTok"), "douyin"),
             (tr("Bilibili"), "bilibili"),
@@ -1747,9 +1794,13 @@ with middle_panel:
         ]
 
         saved_video_source_name = config.app.get("video_source", "pexels")
-        saved_video_source_index = [v[1] for v in video_sources].index(
-            saved_video_source_name
-        )
+        saved_stock_sources = normalize_stock_sources(saved_video_source_name)
+        source_option_values = [item[1] for item in video_sources]
+        if len(saved_stock_sources) > 1:
+            saved_video_source_name = "stock_multi"
+        if saved_video_source_name not in source_option_values:
+            saved_video_source_name = "pexels"
+        saved_video_source_index = source_option_values.index(saved_video_source_name)
 
         selected_index = st.selectbox(
             tr("Video Source"),
@@ -1758,6 +1809,28 @@ with middle_panel:
             index=saved_video_source_index,
         )
         params.video_source = video_sources[selected_index][1]
+
+        if params.video_source == "stock_multi":
+            available_stock_sources = configured_stock_sources()
+            default_stock_sources = [
+                source_name
+                for source_name in saved_stock_sources
+                if source_name in available_stock_sources
+            ]
+            if not default_stock_sources:
+                default_stock_sources = available_stock_sources
+            selected_stock_sources = st.multiselect(
+                tr("Stock Video APIs"),
+                options=available_stock_sources,
+                default=default_stock_sources,
+                format_func=lambda source_name: tr(
+                    STOCK_SOURCE_LABEL_KEYS[source_name]
+                ),
+                help=tr("Stock Video APIs Help"),
+                key="create_video_stock_sources",
+            )
+            params.video_source = ",".join(selected_stock_sources)
+
         config.app["video_source"] = params.video_source
 
         if params.video_source == "local":
@@ -2273,23 +2346,21 @@ if start_button:
         scroll_to_bottom()
         st.stop()
 
-    if params.video_source not in ["pexels", "pixabay", "coverr", "local"]:
+    selected_stock_sources = normalize_stock_sources(params.video_source)
+    if params.video_source != "local" and not selected_stock_sources:
         st.error(tr("Please Select a Valid Video Source"))
         scroll_to_bottom()
         st.stop()
 
-    if params.video_source == "pexels" and not config.app.get("pexels_api_keys", ""):
-        st.error(tr("Please Enter the Pexels API Key"))
-        scroll_to_bottom()
-        st.stop()
-
-    if params.video_source == "pixabay" and not config.app.get("pixabay_api_keys", ""):
-        st.error(tr("Please Enter the Pixabay API Key"))
-        scroll_to_bottom()
-        st.stop()
-
-    if params.video_source == "coverr" and not config.app.get("coverr_api_keys", ""):
-        st.error(tr("Please Enter the Coverr API Key"))
+    missing_stock_sources = missing_stock_source_keys(params.video_source)
+    if missing_stock_sources:
+        missing_labels = ", ".join(
+            tr(STOCK_SOURCE_LABEL_KEYS[source_name])
+            for source_name in missing_stock_sources
+        )
+        st.error(
+            tr("Missing Stock API Keys").format(providers=missing_labels)
+        )
         scroll_to_bottom()
         st.stop()
 
