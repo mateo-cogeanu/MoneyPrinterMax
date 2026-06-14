@@ -8,6 +8,7 @@ import gc
 import re
 import shutil
 import subprocess
+import tempfile
 from contextlib import redirect_stdout
 from functools import lru_cache
 from typing import List
@@ -862,64 +863,6 @@ def _find_nth_text_occurrence(text: str, needle: str, occurrence: int) -> int:
     return index
 
 
-def _highlight_word_overlay(
-    wrapped_text: str,
-    active_word: str,
-    occurrence: int,
-    width: int,
-    height: int,
-    font_path: str,
-    font_size: int,
-    color: str,
-    stroke_color: str,
-    stroke_width: int,
-) -> ImageClip | None:
-    active_index = _find_nth_text_occurrence(
-        wrapped_text, active_word, occurrence
-    )
-    if active_index < 0:
-        # Whisper can keep punctuation attached while the script does not.
-        simplified_word = re.sub(r"^\W+|\W+$", "", active_word)
-        active_index = _find_nth_text_occurrence(
-            wrapped_text, simplified_word, occurrence
-        )
-        active_word = simplified_word
-    if active_index < 0 or not active_word:
-        return None
-
-    font = ImageFont.truetype(font_path, font_size)
-    image = Image.new("RGBA", (max(1, width), max(1, height)), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    lines = wrapped_text.split("\n")
-    line_height = int(font.getbbox("Ag")[3] - font.getbbox("Ag")[1])
-    interline = int(font_size * 0.25)
-    block_height = line_height * len(lines) + interline * max(0, len(lines) - 1)
-    y = max(0, int((height - block_height) / 2))
-    running_index = 0
-
-    for line in lines:
-        line_start = running_index
-        line_end = line_start + len(line)
-        if line_start <= active_index < line_end:
-            local_index = active_index - line_start
-            prefix = line[:local_index]
-            visible_word = line[local_index : local_index + len(active_word)]
-            line_width = draw.textlength(line, font=font)
-            x = (width - line_width) / 2 + draw.textlength(prefix, font=font)
-            draw.text(
-                (x, y),
-                visible_word,
-                font=font,
-                fill=color,
-                stroke_width=max(0, int(stroke_width)),
-                stroke_fill=stroke_color,
-            )
-            return ImageClip(np.array(image), transparent=True)
-        running_index = line_end + 1
-        y += line_height + interline
-    return None
-
-
 def _load_word_timings(subtitle_path: str) -> list[dict]:
     timing_path = f"{subtitle_path}.words.json"
     if not os.path.isfile(timing_path):
@@ -931,6 +874,282 @@ def _load_word_timings(subtitle_path: str) -> list[dict]:
     except Exception as exc:
         logger.warning(f"failed to load subtitle word timings: {str(exc)}")
         return []
+
+
+def _parse_srt_timestamp(value: str) -> float:
+    hours, minutes, seconds = value.strip().split(":")
+    whole_seconds, milliseconds = seconds.split(",")
+    return (
+        int(hours) * 3600
+        + int(minutes) * 60
+        + int(whole_seconds)
+        + int(milliseconds) / 1000
+    )
+
+
+def _format_ass_timestamp(seconds: float) -> str:
+    seconds = max(0, float(seconds))
+    centiseconds = int(round(seconds * 100))
+    hours, remainder = divmod(centiseconds, 360000)
+    minutes, remainder = divmod(remainder, 6000)
+    whole_seconds, centiseconds = divmod(remainder, 100)
+    return f"{hours}:{minutes:02d}:{whole_seconds:02d}.{centiseconds:02d}"
+
+
+def _ass_color(hex_color: str | None, alpha: int = 0) -> str:
+    color = str(hex_color or "#FFFFFF").strip()
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
+        color = "#FFFFFF"
+    red = color[1:3]
+    green = color[3:5]
+    blue = color[5:7]
+    alpha = max(0, min(255, int(alpha)))
+    return f"&H{alpha:02X}{blue}{green}{red}"
+
+
+def _ass_text(value: str) -> str:
+    return (
+        str(value or "")
+        .replace("\\", r"\\")
+        .replace("{", "")
+        .replace("}", "")
+        .replace("\n", r"\N")
+    )
+
+
+def _font_family_from_path(font_path: str) -> str:
+    try:
+        return ImageFont.truetype(font_path, 32).getname()[0]
+    except Exception as exc:
+        logger.warning(f"failed to read font family from {font_path}: {str(exc)}")
+        return os.path.splitext(os.path.basename(font_path))[0]
+
+
+def _subtitle_alignment(
+    params: VideoParams, video_width: int, video_height: int
+) -> tuple[int, int, str]:
+    margin_v = int(video_height * 0.05)
+    if params.subtitle_position == "top":
+        return 8, margin_v, ""
+    if params.subtitle_position == "center":
+        return 5, 0, ""
+    if params.subtitle_position == "custom":
+        y = int(video_height * max(0, min(100, params.custom_position)) / 100)
+        return 5, 0, rf"\an5\pos({int(video_width / 2)},{y})"
+    return 2, margin_v, ""
+
+
+def _highlight_ass_text(
+    wrapped_text: str,
+    active_word: str,
+    occurrence: int,
+    text_color: str,
+    highlight_color: str,
+) -> str:
+    active_index = _find_nth_text_occurrence(wrapped_text, active_word, occurrence)
+    if active_index < 0:
+        simplified_word = re.sub(r"^\W+|\W+$", "", active_word)
+        active_index = _find_nth_text_occurrence(
+            wrapped_text, simplified_word, occurrence
+        )
+        active_word = simplified_word
+    if active_index < 0 or not active_word:
+        return _ass_text(wrapped_text)
+
+    prefix = wrapped_text[:active_index]
+    word = wrapped_text[active_index : active_index + len(active_word)]
+    suffix = wrapped_text[active_index + len(active_word) :]
+    base_ass_color = _ass_color(text_color)[4:]
+    highlight_ass_color = _ass_color(highlight_color)[4:]
+    return (
+        f"{_ass_text(prefix)}"
+        rf"{{\c&H{highlight_ass_color}&}}"
+        f"{_ass_text(word)}"
+        rf"{{\c&H{base_ass_color}&}}"
+        f"{_ass_text(suffix)}"
+    )
+
+
+def _load_srt_items(subtitle_path: str) -> list[tuple[float, float, str]]:
+    items = []
+    with open(subtitle_path, "r", encoding="utf-8") as file:
+        content = file.read().strip()
+    if not content:
+        return items
+    for block in re.split(r"\n\s*\n", content):
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if len(lines) < 2:
+            continue
+        time_line = next((line for line in lines if " --> " in line), "")
+        if not time_line:
+            continue
+        text_start = lines.index(time_line) + 1
+        start_time, end_time = time_line.split(" --> ", 1)
+        items.append(
+            (
+                _parse_srt_timestamp(start_time),
+                _parse_srt_timestamp(end_time),
+                "\n".join(lines[text_start:]),
+            )
+        )
+    return items
+
+
+def _create_ass_subtitles(
+    subtitle_path: str,
+    ass_path: str,
+    params: VideoParams,
+    video_width: int,
+    video_height: int,
+    font_path: str,
+) -> bool:
+    word_timings = _load_word_timings(subtitle_path)
+    subtitle_items = _load_srt_items(subtitle_path)
+    if not subtitle_items or not word_timings:
+        return False
+
+    font_size = int(params.font_size)
+    stroke_width = max(0, int(params.stroke_width))
+    max_width = int(video_width * 0.9)
+    bg_color = None
+    if params.text_background_color:
+        bg_color = (
+            "#000000"
+            if isinstance(params.text_background_color, bool)
+            else str(params.text_background_color)
+        )
+    border_style = 3 if bg_color else 1
+    background_alpha = 140 if getattr(params, "rounded_subtitle_background", False) else 0
+    alignment, margin_v, position_override = _subtitle_alignment(
+        params, video_width, video_height
+    )
+    font_family = _font_family_from_path(font_path)
+
+    header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {video_width}
+PlayResY: {video_height}
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,{font_family},{font_size},{_ass_color(params.text_fore_color)},{_ass_color(params.subtitle_highlight_color)},{_ass_color(params.stroke_color)},{_ass_color(bg_color or "#000000", background_alpha)},0,0,0,0,100,100,0,0,{border_style},{stroke_width},0,{alignment},40,40,{margin_v},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    events = []
+    timing_index = 0
+
+    def append_event(start: float, end: float, text: str):
+        if end <= start:
+            return
+        override = rf"{{{position_override}}}" if position_override else ""
+        events.append(
+            "Dialogue: 0,"
+            f"{_format_ass_timestamp(start)},{_format_ass_timestamp(end)},"
+            f"Default,,0,0,0,,{override}{text}"
+        )
+
+    for subtitle_start, subtitle_end, phrase in subtitle_items:
+        wrapped_text, _ = wrap_text(
+            phrase,
+            max_width=max_width,
+            font=font_path,
+            fontsize=font_size,
+        )
+        cursor = subtitle_start
+        occurrence_counts = {}
+
+        while timing_index < len(word_timings):
+            timing = word_timings[timing_index]
+            word_start = float(timing.get("start", 0))
+            word_end = float(timing.get("end", 0))
+            if word_end <= subtitle_start:
+                timing_index += 1
+                continue
+            if word_start >= subtitle_end:
+                break
+
+            active_word = str(timing.get("word", "")).strip()
+            normalized_word = re.sub(r"^\W+|\W+$", "", active_word).casefold()
+            occurrence = occurrence_counts.get(normalized_word, 0)
+            occurrence_counts[normalized_word] = occurrence + 1
+
+            append_event(cursor, min(word_start, subtitle_end), _ass_text(wrapped_text))
+            append_event(
+                max(subtitle_start, word_start),
+                min(subtitle_end, word_end),
+                _highlight_ass_text(
+                    wrapped_text=wrapped_text,
+                    active_word=active_word,
+                    occurrence=occurrence,
+                    text_color=params.text_fore_color,
+                    highlight_color=params.subtitle_highlight_color,
+                ),
+            )
+            cursor = max(cursor, min(subtitle_end, word_end))
+            timing_index += 1
+
+        append_event(cursor, subtitle_end, _ass_text(wrapped_text))
+
+    with open(ass_path, "w", encoding="utf-8") as file:
+        file.write(header + "\n".join(events) + "\n")
+    return bool(events)
+
+
+def _escape_filter_path(file_path: str) -> str:
+    return file_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+
+def _burn_ass_subtitles_with_ffmpeg(
+    input_file: str,
+    output_file: str,
+    ass_file: str,
+    threads: int,
+) -> str:
+    fonts_dir = utils.font_dir()
+
+    def build_command(codec: str) -> list[str]:
+        return [
+            utils.get_ffmpeg_binary(),
+            "-y",
+            "-i",
+            input_file,
+            "-vf",
+            f"ass='{_escape_filter_path(ass_file)}':fontsdir='{_escape_filter_path(fonts_dir)}'",
+            "-c:v",
+            codec,
+            "-c:a",
+            "copy",
+            "-threads",
+            str(threads or 2),
+            "-pix_fmt",
+            "yuv420p",
+            output_file,
+        ]
+
+    def run_burn(codec: str):
+        result = subprocess.run(
+            build_command(codec),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            error_message = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(error_message or "ffmpeg ASS subtitle burn failed")
+        return codec
+
+    effective_codec = _get_effective_video_codec()
+    try:
+        return run_burn(effective_codec)
+    except Exception as exc:
+        if effective_codec == _DEFAULT_VIDEO_CODEC:
+            raise
+        result_codec = run_burn(_DEFAULT_VIDEO_CODEC)
+        _disable_runtime_video_codec(effective_codec, str(exc))
+        return result_codec
 
 
 def generate_video(
@@ -974,8 +1193,6 @@ def generate_video(
 
     def create_text_clip(
         subtitle_item,
-        active_word: str = "",
-        word_occurrence: int = 0,
         clip_start: float | None = None,
         clip_end: float | None = None,
     ):
@@ -1104,22 +1321,6 @@ def generate_video(
                 text_align="center",
             )
 
-        if active_word:
-            overlay = _highlight_word_overlay(
-                wrapped_text=wrapped_txt,
-                active_word=active_word,
-                occurrence=word_occurrence,
-                width=_clip.w,
-                height=_clip.h,
-                font_path=font_path,
-                font_size=params.font_size,
-                color=getattr(params, "subtitle_highlight_color", "#FFD54A"),
-                stroke_color=params.stroke_color,
-                stroke_width=params.stroke_width,
-            )
-            if overlay is not None:
-                _clip = CompositeVideoClip([_clip, overlay], size=(_clip.w, _clip.h))
-
         start_time = subtitle_item[0][0] if clip_start is None else clip_start
         end_time = subtitle_item[0][1] if clip_end is None else clip_end
         duration = end_time - start_time
@@ -1156,45 +1357,42 @@ def generate_video(
             font_size=params.font_size,
         )
 
+    ass_subtitle_path = ""
+    use_ass_subtitles = False
     if subtitle_path and os.path.exists(subtitle_path):
-        sub = SubtitlesClip(
-            subtitles=subtitle_path, encoding="utf-8", make_textclip=make_textclip
-        )
-        text_clips = []
-        for item in sub.subtitles:
-            clip = create_text_clip(subtitle_item=item)
-            text_clips.append(clip)
-
         if getattr(params, "subtitle_word_highlight", False):
-            word_timings = _load_word_timings(subtitle_path)
-            timing_index = 0
-            for item in sub.subtitles:
-                subtitle_start, subtitle_end = item[0]
-                occurrence_counts = {}
-                while timing_index < len(word_timings):
-                    timing = word_timings[timing_index]
-                    word_start = float(timing.get("start", 0))
-                    word_end = float(timing.get("end", 0))
-                    if word_end <= subtitle_start:
-                        timing_index += 1
-                        continue
-                    if word_start >= subtitle_end:
-                        break
-
-                    active_word = str(timing.get("word", "")).strip()
-                    normalized_word = active_word.casefold()
-                    occurrence = occurrence_counts.get(normalized_word, 0)
-                    occurrence_counts[normalized_word] = occurrence + 1
-                    highlight_clip = create_text_clip(
-                        subtitle_item=item,
-                        active_word=active_word,
-                        word_occurrence=occurrence,
-                        clip_start=max(subtitle_start, word_start),
-                        clip_end=min(subtitle_end, word_end),
+            fd, ass_subtitle_path = tempfile.mkstemp(
+                suffix=".ass", prefix="highlight-subtitles-", dir=output_dir
+            )
+            os.close(fd)
+            try:
+                use_ass_subtitles = _create_ass_subtitles(
+                    subtitle_path=subtitle_path,
+                    ass_path=ass_subtitle_path,
+                    params=params,
+                    video_width=video_width,
+                    video_height=video_height,
+                    font_path=font_path,
+                )
+                if use_ass_subtitles:
+                    logger.info(
+                        f"created ASS word-highlight subtitles: {ass_subtitle_path}"
                     )
-                    text_clips.append(highlight_clip)
-                    timing_index += 1
-        video_clip = CompositeVideoClip([video_clip, *text_clips])
+            except Exception as exc:
+                logger.warning(
+                    f"failed to create ASS word-highlight subtitles, fallback to normal subtitles: {str(exc)}"
+                )
+                use_ass_subtitles = False
+
+        if not use_ass_subtitles:
+            sub = SubtitlesClip(
+                subtitles=subtitle_path, encoding="utf-8", make_textclip=make_textclip
+            )
+            text_clips = []
+            for item in sub.subtitles:
+                clip = create_text_clip(subtitle_item=item)
+                text_clips.append(clip)
+            video_clip = CompositeVideoClip([video_clip, *text_clips])
 
     bgm_file = get_bgm_file(bgm_type=params.bgm_type, bgm_file=params.bgm_file)
     if bgm_file:
@@ -1214,20 +1412,47 @@ def generate_video(
     # 显式沿用输入音频的采样率；如果取不到，再回退到 MoviePy 默认的 44100Hz。
     # 这样可以减少不同运行环境，尤其是 Docker 环境中再次重采样带来的音质波动。
     output_audio_fps = int(getattr(audio_clip, "fps", 0) or 44100)
-    _write_videofile_with_codec_fallback(
-        video_clip,
-        output_file=output_file,
-        codec=_get_configured_video_codec(),
-        audio_codec=audio_codec,
-        audio_fps=output_audio_fps,
-        audio_bitrate=audio_bitrate,
-        temp_audiofile_path=output_dir,
-        threads=params.n_threads or 2,
-        logger=None,
-        fps=fps,
-    )
-    video_clip.close()
-    del video_clip
+    base_output_file = ""
+    write_output_file = output_file
+    if use_ass_subtitles:
+        fd, base_output_file = tempfile.mkstemp(
+            suffix=".mp4", prefix="base-video-", dir=output_dir
+        )
+        os.close(fd)
+        write_output_file = base_output_file
+
+    try:
+        _write_videofile_with_codec_fallback(
+            video_clip,
+            output_file=write_output_file,
+            codec=_get_configured_video_codec(),
+            audio_codec=audio_codec,
+            audio_fps=output_audio_fps,
+            audio_bitrate=audio_bitrate,
+            temp_audiofile_path=output_dir,
+            threads=params.n_threads or 2,
+            logger=None,
+            fps=fps,
+        )
+        video_clip.close()
+        del video_clip
+
+        if use_ass_subtitles:
+            try:
+                _burn_ass_subtitles_with_ffmpeg(
+                    input_file=base_output_file,
+                    output_file=output_file,
+                    ass_file=ass_subtitle_path,
+                    threads=params.n_threads or 2,
+                )
+            except Exception as exc:
+                logger.error(
+                    f"failed to burn ASS word-highlight subtitles, returning base video without highlights: {str(exc)}"
+                )
+                shutil.move(base_output_file, output_file)
+                base_output_file = ""
+    finally:
+        delete_files([base_output_file, ass_subtitle_path])
 
 
 def preprocess_video(materials: List[MaterialInfo], clip_duration=4):

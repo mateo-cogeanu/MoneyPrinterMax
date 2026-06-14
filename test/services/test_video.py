@@ -136,24 +136,47 @@ class TestVideoService(unittest.TestCase):
         self.assertEqual(vd._find_nth_text_occurrence(phrase, "local", 1), 24)
         self.assertEqual(vd._find_nth_text_occurrence(phrase, "missing", 0), -1)
 
-    def test_highlight_word_overlay_strips_punctuation_from_timing_word(self):
+    def test_create_ass_subtitles_uses_libass_highlight_tags(self):
         font_path = os.path.join(utils.font_dir(), "Roboto.ttf")
-
-        clip = vd._highlight_word_overlay(
-            wrapped_text="Hello world",
-            active_word="world!",
-            occurrence=0,
-            width=640,
-            height=120,
-            font_path=font_path,
+        params = types.SimpleNamespace(
             font_size=48,
-            color="#FFD54A",
+            text_fore_color="#FFFFFF",
+            subtitle_highlight_color="#FFD54A",
             stroke_color="#000000",
             stroke_width=1,
+            text_background_color=False,
+            rounded_subtitle_background=False,
+            subtitle_position="bottom",
+            custom_position=70,
         )
 
-        self.assertIsNotNone(clip)
-        clip.close()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            subtitle_file = os.path.join(tmp_dir, "subtitle.srt")
+            ass_file = os.path.join(tmp_dir, "subtitle.ass")
+            Path(subtitle_file).write_text(
+                "1\n00:00:00,000 --> 00:00:02,000\nHello world\n",
+                encoding="utf-8",
+            )
+            Path(f"{subtitle_file}.words.json").write_text(
+                '[{"word": "world!", "start": 0.5, "end": 1.0}]',
+                encoding="utf-8",
+            )
+
+            created = vd._create_ass_subtitles(
+                subtitle_path=subtitle_file,
+                ass_path=ass_file,
+                params=params,
+                video_width=1080,
+                video_height=1920,
+                font_path=font_path,
+            )
+
+            ass_text = Path(ass_file).read_text(encoding="utf-8")
+
+        self.assertTrue(created)
+        self.assertIn("[V4+ Styles]", ass_text)
+        self.assertIn("Dialogue:", ass_text)
+        self.assertIn(r"{\c&H4AD5FF&}world{\c&HFFFFFF&}", ass_text)
 
     def test_preprocess_video_rejects_material_outside_local_videos(self):
         """

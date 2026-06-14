@@ -216,6 +216,14 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 - Added focused regression tests for local voice dispatch, model asset reuse, word timing output, and repeated-word positioning.
 - Reworked YouTube OAuth URL construction to remain valid on the project's supported Python 3.11 runtime.
 
+### ASS Subtitle Highlight Renderer
+
+- Replaced the custom spoken-word highlight overlay with generated ASS subtitles rendered by FFmpeg/libass.
+- Keeps normal subtitles on the existing MoviePy renderer, while highlighted subtitles use a standard subtitle format designed for timed text styling.
+- Preserves configured subtitle font, color, outline, position, background, and highlight color in the ASS style where supported.
+- Falls back to ordinary subtitles if ASS subtitle generation cannot be created for a task.
+- Added regression coverage for ASS highlight generation and a local FFmpeg/libass smoke check during verification.
+
 ### Engaging Subtitle Fonts
 
 - Added five heavier Google Fonts selected specifically for readable, energetic short-video subtitles:
