@@ -18,6 +18,13 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 - Full Auto now stops with a clear message if `Custom Background Music` is selected without choosing or uploading an MP3.
 - Added focused unit tests for topic parsing and schedule generation.
 
+### AI: Shorts Script Quality
+
+- Updated the script-generation prompt so `add a hook` means a short opening hook, not replacing the entire video.
+- Added mandatory YouTube Shorts structure rules requiring a hook, main body, and payoff/conclusion.
+- The Shorts structure rules are appended even when a custom system prompt is used.
+- Added prompt tests to prevent hook-only scripts from returning.
+
 ### WebUI: YouTube Automation Fixes
 
 - Removed the runtime dependency on `google-auth-oauthlib` from the YouTube connect flow.

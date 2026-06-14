@@ -24,7 +24,7 @@ DEFAULT_SCRIPT_SYSTEM_PROMPT = """
 # Role: Video Script Generator
 
 ## Goals:
-Generate a script for a video, depending on the subject of the video.
+Generate a complete YouTube Shorts voiceover script, depending on the subject of the video.
 
 ## Constrains:
 1. the script is to be returned as a string with the specified number of paragraphs.
@@ -35,6 +35,17 @@ Generate a script for a video, depending on the subject of the video.
 6. do not include "voiceover", "narrator" or similar indicators of what should be spoken at the beginning of each paragraph or line.
 7. you must not mention the prompt, or anything about the script itself. also, never talk about the amount of paragraphs or lines. just write the script.
 8. respond in the same language as the video subject.
+9. write the whole short, not just an intro, teaser, or hook.
+""".strip()
+
+YOUTUBE_SHORTS_SCRIPT_RULES = """
+# YouTube Shorts Structure Rules:
+- Treat this as a short-form voiceover script, usually 35 to 70 seconds when read aloud.
+- If the user asks for a hook, the hook must be only the opening 1 or 2 sentences. It must not replace the rest of the script.
+- After the hook, immediately deliver the main value: explain the idea, reveal the answer, give examples, or complete the story.
+- The script must include a payoff or conclusion before it ends. Never end right after saying what the video will cover.
+- Avoid empty setup phrases like "today we will uncover", "let's get into it", or "you won't believe this" unless the next sentences actually deliver the content.
+- Additional user requirements can change tone, angle, or style, but they must not remove the hook-body-payoff structure.
 """.strip()
 
 
@@ -610,6 +621,7 @@ def build_script_prompt(
     # 将“脚本生成规则”和“运行时上下文”分开拼接。这样高级用户即使覆盖默认
     # system prompt，也不会漏掉视频主题、语言、段落数这些每次生成都必须带上的参数。
     prompt = custom_system_prompt or DEFAULT_SCRIPT_SYSTEM_PROMPT
+    prompt += f"\n\n{YOUTUBE_SHORTS_SCRIPT_RULES}"
     prompt += f"""
 
 # Initialization:

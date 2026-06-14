@@ -59,6 +59,8 @@ class TestScriptPromptOptions(unittest.TestCase):
         self.assertIn("- video subject: 咖啡", prompt)
         self.assertIn("- number of paragraphs: 3", prompt)
         self.assertIn("- language: zh-CN", prompt)
+        self.assertIn("# YouTube Shorts Structure Rules:", prompt)
+        self.assertIn("the hook must be only the opening 1 or 2 sentences", prompt)
         self.assertIn("# Additional User Requirements:", prompt)
         self.assertIn("语气轻松，面向程序员", prompt)
 
@@ -76,9 +78,23 @@ class TestScriptPromptOptions(unittest.TestCase):
 
         self.assertNotIn("# Role: Video Script Generator", prompt)
         self.assertIn("Only write cinematic narration.", prompt)
+        self.assertIn("# YouTube Shorts Structure Rules:", prompt)
         self.assertIn("- video subject: 露营", prompt)
         self.assertIn("- number of paragraphs: 2", prompt)
         self.assertIn("- language: en", prompt)
+
+    def test_script_prompt_preserves_full_short_when_hook_is_requested(self):
+        prompt = llm.build_script_prompt(
+            video_subject="AI automation",
+            language="en",
+            paragraph_number=1,
+            video_script_prompt="Add a strong hook so viewers stay engaged.",
+        )
+
+        self.assertIn("write the whole short, not just an intro", prompt)
+        self.assertIn("It must not replace the rest of the script", prompt)
+        self.assertIn("The script must include a payoff or conclusion", prompt)
+        self.assertIn("Add a strong hook so viewers stay engaged.", prompt)
 
     def test_generate_script_sends_custom_prompt_to_llm(self):
         captured = {}
