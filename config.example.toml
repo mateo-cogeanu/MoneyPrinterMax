@@ -375,3 +375,9 @@ upload_post_platforms = ["tiktok", "instagram"]
 
 # Automatically cross-post videos after generation (if false, you'll need to call the API manually)
 upload_post_auto_upload = false
+
+########## YouTube Automation
+# Local OAuth client JSON downloaded from Google Cloud Console.
+# Keep this file private and outside git; the WebUI can also auto-detect
+# client_secret_*.apps.googleusercontent.com.json files in your Downloads folder.
+youtube_client_secret_file = ""

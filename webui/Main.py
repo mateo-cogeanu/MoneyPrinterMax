@@ -2,6 +2,7 @@ import base64
 import html
 import os
 import sys
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 import requests
@@ -26,6 +27,7 @@ from app.models.schema import (
 )
 from app.services import llm, voice
 from app.services import task as tm
+from app.services import youtube_upload
 from app.utils import utils
 
 st.set_page_config(
@@ -132,7 +134,9 @@ with lang_col:
     selected_index = 0
     for i, code in enumerate(locales.keys()):
         display_languages.append(f"{code} - {locales[code].get('Language')}")
-        if code == st.session_state.get("ui_language", ""):
+        selected_ui_language = st.session_state.get("ui_language", "")
+        selected_ui_language_base = selected_ui_language.split("-")[0]
+        if code in (selected_ui_language, selected_ui_language_base):
             selected_index = i
 
     selected_language = st.selectbox(
@@ -250,6 +254,156 @@ def render_generated_videos(video_files):
                 logger.warning(f"failed to render download button for {video_path}: {e}")
 
 
+def get_generated_video_files():
+    tasks_dir = utils.task_dir()
+    video_files = []
+    for root, _, files in os.walk(tasks_dir):
+        for file in files:
+            if file.startswith("final-") and file.lower().endswith(".mp4"):
+                file_path = os.path.join(root, file)
+                video_files.append(file_path)
+    video_files.sort(key=lambda path: os.path.getmtime(path), reverse=True)
+    return video_files
+
+
+def format_video_choice(video_path: str) -> str:
+    relative_path = os.path.relpath(video_path, utils.task_dir())
+    size_mb = os.path.getsize(video_path) / (1024 * 1024)
+    modified_at = datetime.fromtimestamp(os.path.getmtime(video_path)).strftime(
+        "%Y-%m-%d %H:%M"
+    )
+    return f"{relative_path} · {size_mb:.1f} MB · {modified_at}"
+
+
+def render_youtube_automation_mode():
+    st.subheader(tr("YouTube Automation"))
+    st.caption(tr("YouTube Automation Help"))
+
+    default_client_secret_file = youtube_upload.find_default_client_secret_file()
+    saved_client_secret_file = config.app.get(
+        "youtube_client_secret_file", default_client_secret_file
+    )
+    client_secret_file = st.text_input(
+        tr("YouTube OAuth Client JSON"),
+        value=saved_client_secret_file,
+        help=tr("YouTube OAuth Client JSON Help"),
+    ).strip()
+    config.app["youtube_client_secret_file"] = client_secret_file
+
+    auth_cols = st.columns([1, 1, 2])
+    with auth_cols[0]:
+        if st.button(tr("Connect YouTube"), use_container_width=True):
+            try:
+                youtube_upload.get_authenticated_service(
+                    client_secret_file=client_secret_file,
+                    force_reauth=True,
+                )
+                st.success(tr("YouTube Connected"))
+            except Exception as exc:
+                st.error(f"{tr('YouTube Connection Failed')}: {exc}")
+    with auth_cols[1]:
+        if st.button(tr("Forget YouTube Login"), use_container_width=True):
+            youtube_upload.revoke_saved_token()
+            st.success(tr("YouTube Login Removed"))
+    with auth_cols[2]:
+        if youtube_upload.token_exists():
+            st.info(tr("YouTube Token Ready"))
+        else:
+            st.warning(tr("YouTube Token Missing"))
+
+    video_files = get_generated_video_files()
+    if not video_files:
+        st.warning(tr("No Generated Videos Found"))
+        return
+
+    selected_video_index = st.selectbox(
+        tr("Generated Video"),
+        options=range(len(video_files)),
+        format_func=lambda index: format_video_choice(video_files[index]),
+    )
+    selected_video = video_files[selected_video_index]
+    st.video(selected_video)
+
+    title = st.text_input(
+        tr("YouTube Title"),
+        value=st.session_state.get("video_title", "")
+        or os.path.splitext(os.path.basename(selected_video))[0],
+        max_chars=100,
+    )
+    description = st.text_area(
+        tr("YouTube Description"),
+        value=st.session_state.get("video_description", ""),
+        height=180,
+        max_chars=5000,
+    )
+    tags = st.text_input(
+        tr("YouTube Tags"),
+        help=tr("YouTube Tags Help"),
+    )
+
+    publish_cols = st.columns(3)
+    with publish_cols[0]:
+        privacy_status = st.selectbox(
+            tr("YouTube Privacy"),
+            options=["private", "unlisted", "public"],
+            index=0,
+            format_func=lambda value: tr(value.title()),
+        )
+    with publish_cols[1]:
+        schedule_enabled = st.checkbox(tr("Schedule Upload"))
+    with publish_cols[2]:
+        made_for_kids = st.checkbox(tr("Made For Kids"), value=False)
+
+    publish_at = None
+    if schedule_enabled:
+        date_cols = st.columns(2)
+        default_publish_at = datetime.now().astimezone() + timedelta(days=1)
+        with date_cols[0]:
+            publish_date = st.date_input(
+                tr("Publish Date"), value=default_publish_at.date()
+            )
+        with date_cols[1]:
+            publish_time = st.time_input(
+                tr("Publish Time"),
+                value=default_publish_at.time().replace(second=0, microsecond=0),
+            )
+        publish_at = datetime.combine(publish_date, publish_time).astimezone()
+        st.info(tr("Scheduled YouTube Upload Help"))
+
+    upload_label = (
+        tr("Schedule on YouTube")
+        if schedule_enabled
+        else tr("Upload to YouTube Now")
+    )
+    if st.button(upload_label, type="primary", use_container_width=True):
+        if publish_at and publish_at <= datetime.now().astimezone() + timedelta(
+            minutes=15
+        ):
+            st.error(tr("Publish Time Must Be Future"))
+            st.stop()
+
+        try:
+            with st.spinner(tr("Uploading to YouTube")):
+                result = youtube_upload.upload_video(
+                    video_path=selected_video,
+                    title=title,
+                    description=description,
+                    tags=youtube_upload.parse_tags(tags),
+                    privacy_status=privacy_status,
+                    publish_at=publish_at,
+                    client_secret_file=client_secret_file,
+                    made_for_kids=made_for_kids,
+                )
+            if result.get("url"):
+                st.success(tr("YouTube Upload Complete"))
+                st.link_button(tr("Open YouTube Video"), result["url"])
+            else:
+                st.success(tr("YouTube Upload Complete"))
+                st.json(result)
+        except Exception as exc:
+            st.error(f"{tr('YouTube Upload Failed')}: {exc}")
+
+
 def init_log():
     logger.remove()
     _lvl = "DEBUG"
@@ -288,8 +442,31 @@ locales = utils.load_locales(i18n_dir)
 
 
 def tr(key):
-    loc = locales.get(st.session_state["ui_language"], {})
+    language = st.session_state["ui_language"]
+    loc = (
+        locales.get(language)
+        or locales.get(language.split("-")[0])
+        or locales.get("en", {})
+    )
     return loc.get("Translation", {}).get(key, key)
+
+
+mode_options = [
+    (tr("Create Video Mode"), "create"),
+    (tr("YouTube Automation Mode"), "youtube"),
+]
+selected_mode_index = st.radio(
+    tr("App Mode"),
+    options=range(len(mode_options)),
+    format_func=lambda index: mode_options[index][0],
+    horizontal=True,
+    label_visibility="collapsed",
+)
+if mode_options[selected_mode_index][1] == "youtube":
+    render_youtube_automation_mode()
+    config.save_config()
+    st.stop()
+
 
 @st.cache_data(ttl=300, show_spinner=False)
 def get_groq_model_ids(api_key: str, base_url: str) -> list[str]:

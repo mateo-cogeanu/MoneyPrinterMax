@@ -2,6 +2,23 @@
 
 All notable changes for this MoneyPrinterMax customization are documented here.
 
+## 2026-06-14
+
+### WebUI: YouTube Automation Mode
+
+- Added a new app mode switch with `Create Video` and `YouTube Automation`.
+- Added a YouTube Automation screen for uploading generated videos to YouTube.
+- Auto-detects a Google OAuth client-secret JSON in the user's Downloads folder when available.
+- Stores the reusable OAuth token locally under `storage/youtube/oauth_token.json`.
+- Added controls to connect YouTube, forget the saved login, and see whether a token is ready.
+- Lists generated `final-*.mp4` videos from the task storage folder with size and modified time.
+- Shows a preview of the selected generated video before upload.
+- Added editable YouTube title, description, tags, privacy, and made-for-kids controls.
+- Added upload-now support through the YouTube Data API.
+- Added scheduled upload support by setting a future publish time.
+- Validates scheduled publish times so they are at least 15 minutes in the future.
+- Added YouTube OAuth dependency entries for local setup.
+
 ## 2026-06-13
 
 ### WebUI: Post-Generation Behavior
