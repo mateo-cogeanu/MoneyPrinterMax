@@ -188,6 +188,8 @@
     "Music and Voice": "Music and Voice",
     "Existing Background Music": "Existing Background Music",
     "Upload New Background Music": "Upload New Background Music",
+    "Full Auto Custom Music Selected": "Full Auto will use: {filename}",
+    "Full Auto Custom Music Required": "Custom background music is selected. Choose an existing MP3 or upload one before starting Full Auto.",
     "Start Full Auto": "Start Full Auto",
     "Please Enter Video Topics": "Please enter at least one video topic.",
     "Upload Times Must Be Different": "Upload times must be different.",

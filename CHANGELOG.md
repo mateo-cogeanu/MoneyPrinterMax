@@ -14,6 +14,8 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 - Full Auto generates each video sequentially, then schedules it on YouTube through the existing OAuth upload service.
 - Added shared subtitle controls so the selected subtitle style is reused for every video in the batch.
 - Added shared music controls, including random music, no music, existing custom music, or uploading a new custom MP3 for the whole batch.
+- Custom music is now locked before a Full Auto batch starts, and every generated video receives that exact custom file instead of drifting back to random background music.
+- Full Auto now stops with a clear message if `Custom Background Music` is selected without choosing or uploading an MP3.
 - Added focused unit tests for topic parsing and schedule generation.
 
 ### WebUI: YouTube Automation Fixes

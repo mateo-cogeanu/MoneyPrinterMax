@@ -634,6 +634,19 @@ def render_full_auto_mode():
             )
             if uploaded_bgm_file:
                 st.audio(uploaded_bgm_file, format="audio/mp3")
+                st.info(
+                    tr("Full Auto Custom Music Selected").format(
+                        filename=uploaded_bgm_file.name
+                    )
+                )
+            elif selected_bgm_file:
+                st.info(
+                    tr("Full Auto Custom Music Selected").format(
+                        filename=selected_bgm_file
+                    )
+                )
+            else:
+                st.warning(tr("Full Auto Custom Music Required"))
         auto_params.bgm_volume = st.selectbox(
             tr("Background Music Volume"),
             options=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
@@ -742,15 +755,25 @@ def render_full_auto_mode():
             st.stop()
 
         batch_id = str(uuid4())
-        if uploaded_bgm_file:
-            _, bgm_ext = os.path.splitext(os.path.basename(uploaded_bgm_file.name))
-            bgm_ext = bgm_ext.lower() or ".mp3"
-            bgm_filename = f"full-auto-bgm-{batch_id}{bgm_ext}"
-            with open(os.path.join(utils.song_dir(), bgm_filename), "wb") as f:
-                f.write(uploaded_bgm_file.getbuffer())
-            auto_params.bgm_file = bgm_filename
-        elif selected_bgm_file:
-            auto_params.bgm_file = selected_bgm_file
+        if auto_params.bgm_type == "custom":
+            if uploaded_bgm_file:
+                _, bgm_ext = os.path.splitext(os.path.basename(uploaded_bgm_file.name))
+                bgm_ext = bgm_ext.lower() or ".mp3"
+                bgm_filename = f"full-auto-bgm-{batch_id}{bgm_ext}"
+                with open(os.path.join(utils.song_dir(), bgm_filename), "wb") as f:
+                    f.write(uploaded_bgm_file.getbuffer())
+                auto_params.bgm_file = bgm_filename
+            elif selected_bgm_file:
+                auto_params.bgm_file = selected_bgm_file
+            else:
+                st.error(tr("Full Auto Custom Music Required"))
+                st.stop()
+            auto_params.bgm_type = "custom"
+            logger.info(
+                f"full auto custom bgm locked: {auto_params.bgm_file}"
+            )
+        else:
+            auto_params.bgm_file = ""
 
         progress = st.progress(0, text=tr("Starting Full Auto"))
         results = []
@@ -800,6 +823,9 @@ def render_full_auto_mode():
             task_params.video_subject = topic
             task_params.video_script = script
             task_params.video_terms = terms
+            if auto_params.bgm_type == "custom":
+                task_params.bgm_type = "custom"
+                task_params.bgm_file = auto_params.bgm_file
             task_id = str(uuid4())
             result = tm.start(task_id=task_id, params=task_params)
             video_files = result.get("videos", []) if result else []

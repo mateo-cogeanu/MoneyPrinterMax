@@ -184,6 +184,8 @@
     "Music and Voice": "Музыка и голос",
     "Existing Background Music": "Существующая фоновая музыка",
     "Upload New Background Music": "Загрузить новую фоновую музыку",
+    "Full Auto Custom Music Selected": "Полный авто будет использовать: {filename}",
+    "Full Auto Custom Music Required": "Выбрана пользовательская фоновая музыка. Перед запуском полного авто выберите существующий MP3 или загрузите новый.",
     "Start Full Auto": "Запустить полный авто",
     "Please Enter Video Topics": "Введите хотя бы одну тему видео.",
     "Upload Times Must Be Different": "Время загрузки должно отличаться.",
