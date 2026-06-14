@@ -4,6 +4,11 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 
 ## 2026-06-14
 
+### App Metadata
+
+- Bumped the displayed app and package version from `1.3.0` to `1.3.1`.
+- The WebUI now normalizes older local config values so the title shows `MoneyPrinterMax v1.3.1`.
+
 ### WebUI: Config Portability
 
 - Added a top-right in-app config tools menu with config export and import.
