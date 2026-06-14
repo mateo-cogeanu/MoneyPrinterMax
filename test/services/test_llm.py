@@ -222,6 +222,20 @@ class TestScriptPromptOptions(unittest.TestCase):
         self.assertEqual(ranked, [2, 0])
         generate.assert_called_once()
 
+    def test_expand_stock_search_terms_generates_backup_queries(self):
+        with patch.object(
+            llm,
+            "_generate_response",
+            return_value='["baking soda cleaning", "kitchen sink cleaning"]',
+        ):
+            terms = llm.expand_stock_search_terms(
+                "baking soda",
+                existing_terms=["baking soda"],
+                amount=2,
+            )
+
+        self.assertEqual(terms, ["baking soda cleaning", "kitchen sink cleaning"])
+
     def test_video_script_request_rejects_invalid_advanced_options(self):
         """
         API 请求模型需要限制高级 prompt 参数，避免外部调用绕过 WebUI

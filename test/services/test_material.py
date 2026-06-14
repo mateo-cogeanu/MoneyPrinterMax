@@ -279,6 +279,74 @@ class TestMaterialTlsVerification(unittest.TestCase):
         self.assertEqual(downloaded_urls, ["https://v.example/computer.mp4"])
         self.assertEqual(result, ["/tmp/computer.mp4"])
 
+    def test_download_videos_searches_backup_terms_when_pool_is_too_short(self):
+        search_results = {
+            "baking soda": [
+                material.MaterialInfo(
+                    provider="pexels",
+                    url="https://v.example/soda-1.mp4",
+                    duration=3,
+                    title="baking soda powder",
+                ),
+            ],
+            "baking soda cleaning": [
+                material.MaterialInfo(
+                    provider="pexels",
+                    url="https://v.example/soda-2.mp4",
+                    duration=3,
+                    title="baking soda cleaning sink",
+                ),
+                material.MaterialInfo(
+                    provider="pexels",
+                    url="https://v.example/soda-3.mp4",
+                    duration=3,
+                    title="baking soda on kitchen counter",
+                ),
+            ],
+        }
+        downloaded_urls = []
+        searched_terms = []
+
+        def fake_search(search_term, minimum_duration, video_aspect):
+            searched_terms.append(search_term)
+            return search_results.get(search_term, [])
+
+        def fake_save_video(video_url, save_dir=""):
+            downloaded_urls.append(video_url)
+            return f"/tmp/{video_url.rsplit('/', 1)[-1]}"
+
+        with (
+            patch.dict(config.app, {"material_directory": ""}),
+            patch.object(material, "search_videos_pexels", side_effect=fake_search),
+            patch.object(
+                material.llm,
+                "expand_stock_search_terms",
+                return_value=["baking soda cleaning"],
+            ),
+            patch.object(material, "save_video", side_effect=fake_save_video),
+        ):
+            result = material.download_videos(
+                task_id="backup-materials",
+                search_terms=["baking soda"],
+                source="pexels",
+                audio_duration=7,
+                max_clip_duration=3,
+                video_concat_mode="sequential",
+            )
+
+        self.assertEqual(searched_terms, ["baking soda", "baking soda cleaning"])
+        self.assertEqual(
+            downloaded_urls,
+            [
+                "https://v.example/soda-1.mp4",
+                "https://v.example/soda-2.mp4",
+                "https://v.example/soda-3.mp4",
+            ],
+        )
+        self.assertEqual(
+            result, ["/tmp/soda-1.mp4", "/tmp/soda-2.mp4", "/tmp/soda-3.mp4"]
+        )
+
     def test_rank_stock_candidates_batches_ai_for_ambiguous_items(self):
         items = [
             material.MaterialInfo(

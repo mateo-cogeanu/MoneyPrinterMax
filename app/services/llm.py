@@ -985,6 +985,80 @@ Choose the closest stock-video candidates for a short video search term.
     return [index for score, index in scored_indices if score > 0][:max_results]
 
 
+def expand_stock_search_terms(
+    search_term: str, existing_terms: List[str] | None = None, amount: int = 3
+) -> List[str]:
+    search_term = re.sub(r"\s+", " ", str(search_term or "").strip())
+    if not search_term:
+        return []
+
+    existing_terms = [
+        re.sub(r"\s+", " ", str(term or "").strip().lower())
+        for term in (existing_terms or [])
+        if str(term or "").strip()
+    ]
+    prompt = f"""
+# Role: Stock Video Backup Search Generator
+
+Generate broader backup stock-video search terms when the exact search term did not return enough usable clips.
+
+## Rules:
+1. Return only a JSON array of strings.
+2. Return {amount} terms.
+3. Keep every term visually related to the original topic.
+4. Prefer visible actions, settings, tools, people doing the activity, close-ups, demonstrations, or process shots.
+5. Do not use unrelated scenery, parties, laser shows, unrelated vehicles, or unrelated products.
+6. Reply in English.
+
+## Original Search Term
+{search_term}
+
+## Terms Already Tried
+{json.dumps(existing_terms, ensure_ascii=False)}
+""".strip()
+
+    fallback_terms = [
+        f"{search_term} demonstration",
+        f"{search_term} close up",
+        f"person using {search_term}",
+    ][:amount]
+
+    try:
+        response = _generate_response(prompt)
+        if not response or "Error: " in response:
+            raise ValueError(response or "empty expanded search response")
+        terms = json.loads(_strip_code_fence(response))
+        if not isinstance(terms, list):
+            raise ValueError("expanded search response is not a list")
+    except Exception as exc:
+        logger.warning(
+            "stock backup search generation failed, using local fallback terms: "
+            f"search_term={search_term}, error={str(exc)}"
+        )
+        terms = fallback_terms
+
+    expanded_terms = []
+    seen_terms = set(existing_terms)
+    for raw_term in terms:
+        term = re.sub(r"\s+", " ", str(raw_term or "").strip().lower())
+        if not term or term in seen_terms:
+            continue
+        expanded_terms.append(term)
+        seen_terms.add(term)
+        if len(expanded_terms) >= amount:
+            break
+
+    if not expanded_terms:
+        for raw_term in fallback_terms:
+            term = raw_term.lower()
+            if term not in seen_terms:
+                expanded_terms.append(term)
+            if len(expanded_terms) >= amount:
+                break
+
+    return expanded_terms
+
+
 def generate_terms(
     video_subject: str,
     video_script: str,

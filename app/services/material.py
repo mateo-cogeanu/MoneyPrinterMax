@@ -20,6 +20,7 @@ _api_key_lock = threading.Lock()
 _stock_relevance_cache = {}
 _stock_rank_cache = {}
 _MAX_STOCK_AI_CANDIDATES_PER_TERM = 10
+_MAX_BACKUP_SEARCH_TERMS_PER_TERM = 3
 
 
 def _clean_stock_text(value) -> str:
@@ -142,6 +143,65 @@ def rank_stock_candidates(search_term: str, items: List[MaterialInfo]) -> List[M
     overflow_candidates.sort(key=lambda candidate: (-candidate[0], candidate[1]))
     ordered_items.extend(item for _, _, item in overflow_candidates)
     return ordered_items
+
+
+def _candidate_target_duration(audio_duration: float, max_clip_duration: int) -> float:
+    if audio_duration <= 0:
+        return 0.0
+    return audio_duration
+
+
+def _add_ranked_stock_candidates(
+    search_term: str,
+    video_items: List[MaterialInfo],
+    valid_video_urls,
+    target_items: List[MaterialInfo],
+) -> float:
+    added_duration = 0.0
+    for item in rank_stock_candidates(search_term, video_items):
+        if item.url in valid_video_urls:
+            continue
+        target_items.append(item)
+        if hasattr(valid_video_urls, "add"):
+            valid_video_urls.add(item.url)
+        else:
+            valid_video_urls.append(item.url)
+        added_duration += item.duration
+    return added_duration
+
+
+def _search_more_stock_candidates(
+    base_search_term: str,
+    searched_terms: List[str],
+    search_videos,
+    video_aspect: VideoAspect,
+    max_clip_duration: int,
+    valid_video_urls,
+    target_items: List[MaterialInfo],
+    remaining_duration: float,
+) -> float:
+    added_duration = 0.0
+    backup_terms = llm.expand_stock_search_terms(
+        search_term=base_search_term,
+        existing_terms=searched_terms,
+        amount=_MAX_BACKUP_SEARCH_TERMS_PER_TERM,
+    )
+    for backup_term in backup_terms:
+        if backup_term in searched_terms:
+            continue
+        searched_terms.append(backup_term)
+        video_items = search_videos(
+            search_term=backup_term,
+            minimum_duration=max_clip_duration,
+            video_aspect=video_aspect,
+        )
+        logger.info(f"found {len(video_items)} backup videos for '{backup_term}'")
+        added_duration += _add_ranked_stock_candidates(
+            backup_term, video_items, valid_video_urls, target_items
+        )
+        if remaining_duration > 0 and added_duration >= remaining_duration:
+            break
+    return added_duration
 
 
 def _get_tls_verify() -> bool:
@@ -470,7 +530,10 @@ def download_videos(
     valid_video_items = []
     valid_video_urls = []
     found_duration = 0.0
+    target_duration = _candidate_target_duration(audio_duration, max_clip_duration)
+    searched_terms = []
     for search_term in search_terms:
+        searched_terms.append(search_term)
         video_items = search_videos(
             search_term=search_term,
             minimum_duration=max_clip_duration,
@@ -478,17 +541,31 @@ def download_videos(
         )
         logger.info(f"found {len(video_items)} videos for '{search_term}'")
 
-        for item in rank_stock_candidates(search_term, video_items):
-            if item.url not in valid_video_urls:
-                valid_video_items.append(item)
-                valid_video_urls.append(item.url)
-                found_duration += item.duration
-                if found_duration > audio_duration + (max_clip_duration * 2):
-                    break
+        found_duration += _add_ranked_stock_candidates(
+            search_term, video_items, valid_video_urls, valid_video_items
+        )
 
-        if found_duration > audio_duration + (max_clip_duration * 2):
+        if target_duration > 0 and found_duration > target_duration:
             logger.info("found enough stock video candidates, skip searching more terms")
             break
+
+    if target_duration > 0 and found_duration < target_duration:
+        logger.info(
+            f"stock candidates are short ({found_duration:.2f}s/{target_duration:.2f}s), searching backup terms"
+        )
+        for search_term in search_terms:
+            found_duration += _search_more_stock_candidates(
+                base_search_term=search_term,
+                searched_terms=searched_terms,
+                search_videos=search_videos,
+                video_aspect=video_aspect,
+                max_clip_duration=max_clip_duration,
+                valid_video_urls=valid_video_urls,
+                target_items=valid_video_items,
+                remaining_duration=target_duration - found_duration,
+            )
+            if found_duration >= target_duration:
+                break
 
     logger.info(
         f"found total videos: {len(valid_video_items)}, required duration: {audio_duration} seconds, found duration: {found_duration} seconds"
@@ -542,10 +619,14 @@ def _download_videos_by_script_order(
     """
     logger.info("downloading videos with script-order material matching")
     candidate_groups = []
+    group_by_term = {}
     valid_video_urls = set()
     found_duration = 0.0
+    target_duration = _candidate_target_duration(audio_duration, max_clip_duration)
+    searched_terms = []
 
     for search_term in search_terms:
+        searched_terms.append(search_term)
         video_items = search_videos(
             search_term=search_term,
             minimum_duration=max_clip_duration,
@@ -554,17 +635,36 @@ def _download_videos_by_script_order(
         logger.info(f"found {len(video_items)} videos for '{search_term}'")
 
         term_items = []
-        for item in rank_stock_candidates(search_term, video_items):
-            if item.url in valid_video_urls:
-                continue
-            term_items.append(item)
-            valid_video_urls.add(item.url)
-            found_duration += item.duration
-            if found_duration > audio_duration + (max_clip_duration * 2):
-                break
+        found_duration += _add_ranked_stock_candidates(
+            search_term, video_items, valid_video_urls, term_items
+        )
 
         if term_items:
             candidate_groups.append((search_term, term_items))
+            group_by_term[search_term] = term_items
+
+    if target_duration > 0 and found_duration < target_duration:
+        logger.info(
+            f"ordered stock candidates are short ({found_duration:.2f}s/{target_duration:.2f}s), searching backup terms"
+        )
+        for search_term in search_terms:
+            term_items = group_by_term.get(search_term)
+            if term_items is None:
+                term_items = []
+                candidate_groups.append((search_term, term_items))
+                group_by_term[search_term] = term_items
+            found_duration += _search_more_stock_candidates(
+                base_search_term=search_term,
+                searched_terms=searched_terms,
+                search_videos=search_videos,
+                video_aspect=video_aspect,
+                max_clip_duration=max_clip_duration,
+                valid_video_urls=valid_video_urls,
+                target_items=term_items,
+                remaining_duration=target_duration - found_duration,
+            )
+            if found_duration >= target_duration:
+                break
 
     logger.info(
         f"found total ordered video candidates: {sum(len(items) for _, items in candidate_groups)}, "
