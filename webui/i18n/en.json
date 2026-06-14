@@ -177,7 +177,7 @@
     "YouTube OAuth Client JSON": "YouTube OAuth Client JSON",
     "YouTube OAuth Client JSON Help": "Path to the client_secret JSON from Google Cloud Console. Keep this file private and outside git.",
     "YouTube OAuth Troubleshooting": "YouTube OAuth Troubleshooting",
-    "YouTube OAuth Troubleshooting Help": "If Google says the app is blocked or unverified, open Google Cloud Console, go to OAuth consent screen, and add your Google account as a test user or publish/verify the app. If Google says redirect_uri_mismatch, create a Desktop app OAuth client, download the new client_secret JSON, and select that file here.",
+    "YouTube OAuth Troubleshooting Help": "If Google shows Error 403: access_denied, the request was blocked during OAuth before YouTube API usage is recorded. Open Google Cloud Console, go to OAuth consent screen, and add your Google account as a test user or publish/verify the app. If Google says redirect_uri_mismatch, create a Desktop app OAuth client, download the new client_secret JSON, and select that file here.",
     "Connect YouTube": "Connect YouTube",
     "Forget YouTube Login": "Forget YouTube Login",
     "YouTube Connected": "YouTube is connected.",

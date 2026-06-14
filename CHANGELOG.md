@@ -8,9 +8,11 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 
 - Removed the runtime dependency on `google-auth-oauthlib` from the YouTube connect flow.
 - Added a built-in local OAuth callback flow so YouTube connection can work in environments where only the core Google auth/client libraries are installed.
-- Changed the manual OAuth callback to use `127.0.0.1`, which avoids some local redirect handling quirks.
+- Improved the manual OAuth callback so it uses a local loopback server without requiring `google-auth-oauthlib`.
 - Google OAuth error descriptions are now shown in the app when Google redirects back with a connection error.
 - Added a YouTube OAuth troubleshooting note for blocked/unverified apps and redirect URI mismatch setup problems.
+- The OAuth callback now follows the loopback host in the selected client JSON, so a `localhost` Desktop client keeps using a `localhost` redirect.
+- Added a clearer `403: access_denied` message explaining that this is an OAuth consent-screen block, not YouTube API usage.
 - Reduced the YouTube Automation video preview width so selected videos no longer dominate the page.
 
 ### WebUI: YouTube Automation Mode

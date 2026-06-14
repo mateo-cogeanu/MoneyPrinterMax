@@ -20,6 +20,29 @@ YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 
 
+def _friendly_oauth_error(error: str, description: str = "") -> str:
+    if error == "access_denied":
+        return (
+            "Google denied access before YouTube was called. This usually means "
+            "the OAuth consent screen is still in Testing and your Google account "
+            "is not listed as a test user, or the app is blocked/unverified for "
+            "the YouTube upload scope. Add your Google account as a test user in "
+            "Google Cloud Console > OAuth consent screen, then try Connect YouTube "
+            "again."
+        )
+
+    return description or error
+
+
+def _oauth_loopback_host(client_info: dict) -> str:
+    for redirect_uri in client_info.get("redirect_uris") or []:
+        host = urlparse(redirect_uri).hostname
+        if host in {"localhost", "127.0.0.1"}:
+            return host
+
+    return "localhost"
+
+
 def find_default_client_secret_file() -> str:
     candidates = glob.glob(
         os.path.expanduser("~/Downloads/client_secret_*.apps.googleusercontent.com.json")
@@ -99,9 +122,11 @@ def _exchange_code_for_credentials(client_secret_file: str, credentials_cls):
         def log_message(self, format, *args):
             return
 
-    server = HTTPServer(("127.0.0.1", 0), OAuthCallbackHandler)
+    redirect_host = _oauth_loopback_host(client_info)
+    bind_host = "127.0.0.1" if redirect_host == "localhost" else redirect_host
+    server = HTTPServer((bind_host, 0), OAuthCallbackHandler)
     server.timeout = 300
-    redirect_uri = f"http://127.0.0.1:{server.server_port}/"
+    redirect_uri = f"http://{redirect_host}:{server.server_port}/"
     state = secrets.token_urlsafe(24)
     auth_url = f"{auth_uri}?{urlencode({
         'client_id': client_id,
@@ -118,7 +143,9 @@ def _exchange_code_for_credentials(client_secret_file: str, credentials_cls):
     server.server_close()
 
     if auth_result.get("error"):
-        details = auth_result.get("error_description") or auth_result["error"]
+        details = _friendly_oauth_error(
+            auth_result["error"], auth_result.get("error_description", "")
+        )
         raise RuntimeError(f"YouTube authorization failed: {details}")
     if not auth_result.get("code"):
         raise TimeoutError("Timed out waiting for YouTube authorization.")
