@@ -30,6 +30,25 @@ class TestFullAuto(unittest.TestCase):
             ],
         )
 
+    def test_build_schedule_supports_more_than_two_daily_times(self):
+        topics = ["One", "Two", "Three", "Four"]
+
+        schedule = full_auto.build_schedule(
+            topics,
+            date(2026, 6, 15),
+            [time(18, 0), time(9, 0), time(12, 30)],
+        )
+
+        self.assertEqual(
+            [item["publish_label"] for item in schedule],
+            [
+                "2026-06-15 09:00",
+                "2026-06-15 12:30",
+                "2026-06-15 18:00",
+                "2026-06-16 09:00",
+            ],
+        )
+
     def test_build_duration_script_requirement_sets_word_range(self):
         requirement = full_auto.build_duration_script_requirement(30)
 

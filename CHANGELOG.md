@@ -4,11 +4,19 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 
 ## 2026-06-14
 
+### WebUI: Config Portability
+
+- Added a top-right in-app config tools menu with config export and import.
+- Config exports include user settings and API key fields from the app config.
+- Config exports can optionally include the saved YouTube OAuth token and Google client-secret JSON for moving YouTube upload access to another setup.
+- Config import restores app, UI, Azure, SiliconFlow, YouTube OAuth token, and imported Google client-secret settings.
+
 ### WebUI: Full Auto Mode
 
 - Added a new `Full Auto` app mode for hands-off topic batching.
 - Users can enter one video topic per line and choose two daily upload times.
 - The app calculates the full publishing date range from the topic count, start date, and daily upload slots.
+- Replaced the fixed two daily upload slots with an editable upload-time list so users can add or remove daily publish times.
 - Added a schedule preview table showing each topic and its planned publish time.
 - Full Auto generates the script, keywords, YouTube title, and YouTube description for each topic.
 - Full Auto generates each video sequentially, then schedules it on YouTube through the existing OAuth upload service.

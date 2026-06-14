@@ -1,5 +1,6 @@
 import base64
 import html
+import json
 import os
 import sys
 from datetime import datetime, timedelta
@@ -123,11 +124,127 @@ if "local_video_materials" not in st.session_state:
 # 加载语言文件
 locales = utils.load_locales(i18n_dir)
 
-# 创建一个顶部栏，包含标题和语言选择
-title_col, lang_col = st.columns([3, 1])
+
+def tr(key):
+    language = st.session_state["ui_language"]
+    loc = (
+        locales.get(language)
+        or locales.get(language.split("-")[0])
+        or locales.get("en", {})
+    )
+    return loc.get("Translation", {}).get(key, key)
+
+
+# 创建一个顶部栏，包含标题、配置工具和语言选择
+title_col, tools_col, lang_col = st.columns([3, 0.35, 1])
 
 with title_col:
     st.title(f"MoneyPrinterMax v{config.project_version}")
+
+
+def build_config_export(include_youtube_auth: bool = True) -> dict:
+    config.save_config()
+    export_data = {
+        "format": "MoneyPrinterMaxConfigExport",
+        "version": 1,
+        "exported_at": datetime.now().astimezone().isoformat(),
+        "config": config._cfg,
+    }
+
+    if include_youtube_auth:
+        token_file = youtube_upload.default_token_file()
+        if os.path.isfile(token_file):
+            with open(token_file, "r", encoding="utf-8") as fp:
+                export_data["youtube_oauth_token"] = json.load(fp)
+
+        client_secret_file = config.app.get("youtube_client_secret_file", "")
+        client_secret_file = os.path.abspath(os.path.expanduser(client_secret_file))
+        if client_secret_file and os.path.isfile(client_secret_file):
+            with open(client_secret_file, "r", encoding="utf-8") as fp:
+                export_data["youtube_client_secret_json"] = json.load(fp)
+
+    return export_data
+
+
+def apply_config_import(import_data: dict):
+    if import_data.get("format") != "MoneyPrinterMaxConfigExport":
+        raise ValueError(tr("Invalid Config Import File"))
+
+    imported_config = import_data.get("config")
+    if not isinstance(imported_config, dict):
+        raise ValueError(tr("Invalid Config Import File"))
+
+    config._cfg.clear()
+    config._cfg.update(imported_config)
+    config.app.clear()
+    config.app.update(imported_config.get("app", {}))
+    config.azure.clear()
+    config.azure.update(imported_config.get("azure", {}))
+    config.siliconflow.clear()
+    config.siliconflow.update(imported_config.get("siliconflow", {}))
+    config.ui.clear()
+    config.ui.update(imported_config.get("ui", {"hide_log": False}))
+
+    youtube_token = import_data.get("youtube_oauth_token")
+    if isinstance(youtube_token, dict):
+        token_file = youtube_upload.default_token_file()
+        os.makedirs(os.path.dirname(token_file), exist_ok=True)
+        with open(token_file, "w", encoding="utf-8") as fp:
+            json.dump(youtube_token, fp, indent=2)
+
+    youtube_client_secret = import_data.get("youtube_client_secret_json")
+    if isinstance(youtube_client_secret, dict):
+        youtube_dir = utils.storage_dir("youtube", create=True)
+        client_secret_file = os.path.join(youtube_dir, "client_secret_imported.json")
+        with open(client_secret_file, "w", encoding="utf-8") as fp:
+            json.dump(youtube_client_secret, fp, indent=2)
+        config.app["youtube_client_secret_file"] = client_secret_file
+        config._cfg.setdefault("app", {})["youtube_client_secret_file"] = (
+            client_secret_file
+        )
+
+    config.save_config()
+
+
+def render_config_tools_menu():
+    with st.popover("⋮", use_container_width=True):
+        st.write(tr("Config Tools"))
+        st.warning(tr("Config Export Warning"))
+        include_youtube_auth = st.checkbox(
+            tr("Include YouTube OAuth Login"),
+            value=True,
+            help=tr("Include YouTube OAuth Login Help"),
+            key="config_export_include_youtube_auth",
+        )
+        export_data = build_config_export(include_youtube_auth)
+        st.download_button(
+            tr("Export Config"),
+            data=json.dumps(export_data, indent=2).encode("utf-8"),
+            file_name="moneyprintermax-config-export.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+
+        import_file = st.file_uploader(
+            tr("Import Config"),
+            type=["json"],
+            accept_multiple_files=False,
+            key="config_import_file",
+        )
+        if import_file and st.button(
+            tr("Apply Imported Config"), type="primary", use_container_width=True
+        ):
+            try:
+                import_data = json.loads(import_file.getvalue().decode("utf-8"))
+                apply_config_import(import_data)
+                st.success(tr("Config Import Complete"))
+                st.rerun()
+            except Exception as exc:
+                st.error(f"{tr('Config Import Failed')}: {exc}")
+
+
+with tools_col:
+    render_config_tools_menu()
 
 with lang_col:
     display_languages = []
@@ -469,19 +586,41 @@ def render_full_auto_mode():
             value=(datetime.now().astimezone() + timedelta(days=1)).date(),
             key="full_auto_start_date",
         )
-        time_cols = st.columns(2)
-        with time_cols[0]:
-            first_publish_time = st.time_input(
-                tr("Upload Time 1"),
-                value=datetime.strptime("08:00", "%H:%M").time(),
-                key="full_auto_upload_time_1",
+        if "full_auto_upload_times" not in st.session_state:
+            st.session_state["full_auto_upload_times"] = [
+                datetime.strptime("08:00", "%H:%M").time(),
+                datetime.strptime("20:00", "%H:%M").time(),
+            ]
+
+        upload_times = []
+        for time_index, saved_time in enumerate(
+            st.session_state["full_auto_upload_times"]
+        ):
+            time_cols = st.columns([0.78, 0.22])
+            with time_cols[0]:
+                upload_times.append(
+                    st.time_input(
+                        tr("Upload Time").format(number=time_index + 1),
+                        value=saved_time,
+                        key=f"full_auto_upload_time_{time_index}",
+                    )
+                )
+            with time_cols[1]:
+                if st.button(
+                    tr("Remove"),
+                    key=f"full_auto_remove_time_{time_index}",
+                    disabled=len(st.session_state["full_auto_upload_times"]) <= 1,
+                    use_container_width=True,
+                ):
+                    st.session_state["full_auto_upload_times"].pop(time_index)
+                    st.rerun()
+
+        st.session_state["full_auto_upload_times"] = upload_times
+        if st.button(tr("Add Upload Time"), use_container_width=True):
+            st.session_state["full_auto_upload_times"].append(
+                datetime.strptime("12:00", "%H:%M").time()
             )
-        with time_cols[1]:
-            second_publish_time = st.time_input(
-                tr("Upload Time 2"),
-                value=datetime.strptime("20:00", "%H:%M").time(),
-                key="full_auto_upload_time_2",
-            )
+            st.rerun()
         made_for_kids = st.checkbox(
             tr("Made For Kids"), value=False, key="full_auto_made_for_kids"
         )
@@ -495,13 +634,18 @@ def render_full_auto_mode():
         )
         topics = full_auto.parse_topics(raw_topics)
         schedule = full_auto.build_schedule(
-            topics, start_date, [first_publish_time, second_publish_time]
+            topics, start_date, upload_times
         )
         if schedule:
             st.info(
                 tr("Full Auto Schedule Summary").format(
                     count=len(topics),
-                    per_day=len({first_publish_time, second_publish_time}),
+                    per_day=len(
+                        {
+                            time.replace(second=0, microsecond=0)
+                            for time in upload_times
+                        }
+                    ),
                     start=schedule[0]["publish_label"],
                     end=schedule[-1]["publish_label"],
                 )
@@ -745,7 +889,13 @@ def render_full_auto_mode():
         if not topics:
             st.error(tr("Please Enter Video Topics"))
             st.stop()
-        if first_publish_time == second_publish_time:
+        normalized_upload_times = [
+            time.replace(second=0, microsecond=0) for time in upload_times
+        ]
+        if not normalized_upload_times:
+            st.error(tr("At Least One Upload Time Required"))
+            st.stop()
+        if len(set(normalized_upload_times)) != len(normalized_upload_times):
             st.error(tr("Upload Times Must Be Different"))
             st.stop()
         if not youtube_upload.token_exists():
@@ -910,16 +1060,6 @@ def init_log():
 init_log()
 
 locales = utils.load_locales(i18n_dir)
-
-
-def tr(key):
-    language = st.session_state["ui_language"]
-    loc = (
-        locales.get(language)
-        or locales.get(language.split("-")[0])
-        or locales.get("en", {})
-    )
-    return loc.get("Translation", {}).get(key, key)
 
 
 mode_options = [
