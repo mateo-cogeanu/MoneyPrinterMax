@@ -5,6 +5,7 @@ import json
 import os
 import random
 import gc
+import re
 import shutil
 import subprocess
 from contextlib import redirect_stdout

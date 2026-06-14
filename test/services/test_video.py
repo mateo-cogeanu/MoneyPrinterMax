@@ -136,6 +136,25 @@ class TestVideoService(unittest.TestCase):
         self.assertEqual(vd._find_nth_text_occurrence(phrase, "local", 1), 24)
         self.assertEqual(vd._find_nth_text_occurrence(phrase, "missing", 0), -1)
 
+    def test_highlight_word_overlay_strips_punctuation_from_timing_word(self):
+        font_path = os.path.join(utils.font_dir(), "Roboto.ttf")
+
+        clip = vd._highlight_word_overlay(
+            wrapped_text="Hello world",
+            active_word="world!",
+            occurrence=0,
+            width=640,
+            height=120,
+            font_path=font_path,
+            font_size=48,
+            color="#FFD54A",
+            stroke_color="#000000",
+            stroke_width=1,
+        )
+
+        self.assertIsNotNone(clip)
+        clip.close()
+
     def test_preprocess_video_rejects_material_outside_local_videos(self):
         """
         local 素材路径来自 API 参数，不能允许任意绝对路径进入 MoviePy。
