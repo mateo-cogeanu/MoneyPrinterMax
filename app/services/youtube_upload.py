@@ -1,10 +1,15 @@
 import glob
 import json
 import os
+import secrets
+import webbrowser
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlencode, urlparse, parse_qs
 
+import requests
 from loguru import logger
 
 from app.utils import utils
@@ -35,16 +40,15 @@ def _load_google_modules():
     try:
         from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
-        from google_auth_oauthlib.flow import InstalledAppFlow
         from googleapiclient.discovery import build
         from googleapiclient.http import MediaFileUpload
     except ImportError as exc:
         raise RuntimeError(
             "YouTube upload dependencies are missing. Install "
-            "google-api-python-client, google-auth-httplib2, and google-auth-oauthlib."
+            "google-api-python-client and google-auth-httplib2."
         ) from exc
 
-    return Request, Credentials, InstalledAppFlow, build, MediaFileUpload
+    return Request, Credentials, build, MediaFileUpload
 
 
 def _ensure_client_secret_file(client_secret_file: str) -> str:
@@ -60,12 +64,95 @@ def _ensure_client_secret_file(client_secret_file: str) -> str:
     return client_secret_file
 
 
+def _exchange_code_for_credentials(client_secret_file: str, credentials_cls):
+    with open(client_secret_file, "r", encoding="utf-8") as fp:
+        client_config = json.load(fp)
+
+    client_info = client_config.get("installed") or client_config.get("web") or {}
+    client_id = client_info.get("client_id", "")
+    client_secret = client_info.get("client_secret", "")
+    auth_uri = client_info.get("auth_uri", "")
+    token_uri = client_info.get("token_uri", "")
+    if not client_id or not auth_uri or not token_uri:
+        raise ValueError("The YouTube OAuth client JSON is missing required fields.")
+
+    auth_result = {}
+
+    class OAuthCallbackHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            parsed_url = urlparse(self.path)
+            params = parse_qs(parsed_url.query)
+            auth_result["code"] = params.get("code", [""])[0]
+            auth_result["state"] = params.get("state", [""])[0]
+            auth_result["error"] = params.get("error", [""])[0]
+
+            self.send_response(200)
+            self.send_header("Content-type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(
+                b"<html><body><h2>YouTube connected.</h2>"
+                b"<p>You can close this tab and return to MoneyPrinterMax.</p>"
+                b"</body></html>"
+            )
+
+        def log_message(self, format, *args):
+            return
+
+    server = HTTPServer(("localhost", 0), OAuthCallbackHandler)
+    server.timeout = 300
+    redirect_uri = f"http://localhost:{server.server_port}/"
+    state = secrets.token_urlsafe(24)
+    auth_url = f"{auth_uri}?{urlencode({
+        'client_id': client_id,
+        'redirect_uri': redirect_uri,
+        'response_type': 'code',
+        'scope': YOUTUBE_UPLOAD_SCOPE,
+        'access_type': 'offline',
+        'prompt': 'consent',
+        'state': state,
+    })}"
+
+    webbrowser.open(auth_url)
+    server.handle_request()
+    server.server_close()
+
+    if auth_result.get("error"):
+        raise RuntimeError(f"YouTube authorization failed: {auth_result['error']}")
+    if not auth_result.get("code"):
+        raise TimeoutError("Timed out waiting for YouTube authorization.")
+    if auth_result.get("state") != state:
+        raise RuntimeError("YouTube authorization state did not match.")
+
+    token_response = requests.post(
+        token_uri,
+        data={
+            "code": auth_result["code"],
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+        },
+        timeout=30,
+    )
+    token_response.raise_for_status()
+    token_data = token_response.json()
+
+    return credentials_cls(
+        token=token_data.get("access_token"),
+        refresh_token=token_data.get("refresh_token"),
+        token_uri=token_uri,
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=[YOUTUBE_UPLOAD_SCOPE],
+    )
+
+
 def get_authenticated_service(
     client_secret_file: str,
     token_file: Optional[str] = None,
     force_reauth: bool = False,
 ):
-    Request, Credentials, InstalledAppFlow, build, _ = _load_google_modules()
+    Request, Credentials, build, _ = _load_google_modules()
     client_secret_file = _ensure_client_secret_file(client_secret_file)
     token_file = token_file or default_token_file()
     os.makedirs(os.path.dirname(token_file), exist_ok=True)
@@ -80,10 +167,9 @@ def get_authenticated_service(
         credentials.refresh(Request())
 
     if not credentials or not credentials.valid:
-        flow = InstalledAppFlow.from_client_secrets_file(
-            client_secret_file, [YOUTUBE_UPLOAD_SCOPE]
+        credentials = _exchange_code_for_credentials(
+            client_secret_file, Credentials
         )
-        credentials = flow.run_local_server(port=0, prompt="consent")
 
     with open(token_file, "w", encoding="utf-8") as fp:
         fp.write(credentials.to_json())
@@ -132,7 +218,7 @@ def upload_video(
     category_id: str = "22",
     made_for_kids: bool = False,
 ):
-    _, _, _, _, MediaFileUpload = _load_google_modules()
+    _, _, _, MediaFileUpload = _load_google_modules()
     youtube = get_authenticated_service(client_secret_file, token_file)
 
     video_path = os.path.abspath(os.path.expanduser(video_path or ""))

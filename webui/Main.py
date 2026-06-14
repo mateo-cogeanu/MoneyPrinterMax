@@ -322,7 +322,9 @@ def render_youtube_automation_mode():
         format_func=lambda index: format_video_choice(video_files[index]),
     )
     selected_video = video_files[selected_video_index]
-    st.video(selected_video)
+    preview_cols = st.columns([1, 1.15, 1])
+    with preview_cols[1]:
+        st.video(selected_video)
 
     title = st.text_input(
         tr("YouTube Title"),

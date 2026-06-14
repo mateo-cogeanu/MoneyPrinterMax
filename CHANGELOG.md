@@ -4,6 +4,12 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 
 ## 2026-06-14
 
+### WebUI: YouTube Automation Fixes
+
+- Removed the runtime dependency on `google-auth-oauthlib` from the YouTube connect flow.
+- Added a built-in local OAuth callback flow so YouTube connection can work in environments where only the core Google auth/client libraries are installed.
+- Reduced the YouTube Automation video preview width so selected videos no longer dominate the page.
+
 ### WebUI: YouTube Automation Mode
 
 - Added a new app mode switch with `Create Video` and `YouTube Automation`.
