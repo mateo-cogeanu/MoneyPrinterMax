@@ -2,6 +2,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 # 测试文件直接运行时，也能从仓库根目录导入 app 包。
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -10,6 +12,9 @@ from app.services import subtitle
 
 
 class TestSubtitleService(unittest.TestCase):
+    def tearDown(self):
+        subtitle.alignment_model = None
+
     def test_correct_ignores_markdown_separator_lines(self):
         """
         Whisper fallback 校正阶段也必须忽略 `---` 这类不可发声脚本行。
@@ -86,6 +91,32 @@ class TestSubtitleService(unittest.TestCase):
             items = subtitle.file_to_subtitles(str(subtitle_file))
 
         self.assertEqual([item[2] for item in items], ["Hello", "World"])
+
+    def test_create_word_timestamps_writes_lightweight_alignment_data(self):
+        fake_segment = SimpleNamespace(
+            words=[
+                SimpleNamespace(word="Hello", start=0.1, end=0.5),
+                SimpleNamespace(word="world", start=0.55, end=1.0),
+            ]
+        )
+        fake_model = SimpleNamespace(
+            transcribe=lambda *args, **kwargs: ([fake_segment], SimpleNamespace())
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir, patch.object(
+            subtitle, "WhisperModel", return_value=fake_model
+        ):
+            output_file = Path(tmp_dir) / "subtitle.srt.words.json"
+            result = subtitle.create_word_timestamps(
+                audio_file="/tmp/audio.mp3",
+                output_file=str(output_file),
+                expected_text="Hello world",
+            )
+            data = output_file.read_text(encoding="utf-8")
+
+        self.assertEqual(result, str(output_file))
+        self.assertIn('"word": "Hello"', data)
+        self.assertIn('"start": 0.1', data)
 
 
 if __name__ == "__main__":

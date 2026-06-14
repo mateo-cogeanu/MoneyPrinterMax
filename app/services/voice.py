@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hashlib
 import io
 import inspect
 import json
@@ -12,6 +13,7 @@ import threading
 import time
 import unicodedata
 from datetime import datetime
+from pathlib import Path
 from typing import Union
 from xml.sax.saxutils import unescape
 
@@ -29,6 +31,22 @@ from app.utils import utils
 _DEFAULT_EDGE_TTS_TIMEOUT_SECONDS = 30.0
 _MIMO_DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1"
 _MIMO_DEFAULT_TTS_MODEL = "mimo-v2.5-tts"
+_KOKORO_MODEL_URL = (
+    "https://github.com/thewh1teagle/kokoro-onnx/releases/download/"
+    "model-files-v1.0/kokoro-v1.0.int8.onnx"
+)
+_KOKORO_VOICES_URL = (
+    "https://github.com/thewh1teagle/kokoro-onnx/releases/download/"
+    "model-files-v1.0/voices-v1.0.bin"
+)
+_KOKORO_MODEL_SHA256 = (
+    "6e742170d309016e5891a994e1ce1559c702a2ccd0075e67ef7157974f6406cb"
+)
+_KOKORO_VOICES_SHA256 = (
+    "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d"
+)
+_kokoro_instance = None
+_kokoro_lock = threading.Lock()
 NO_VOICE_NAME = "no-voice"
 # `none` 是 PR #981 里曾使用过的无配音标识。这里短期兼容这个值，避免
 # 已经手动调用过该分支的 API 用户升级后立即失效；WebUI 和新代码统一使用
@@ -139,6 +157,22 @@ def get_mimo_voices() -> list[str]:
     return [f"mimo:{voice}-{gender}" for voice, gender in voices_with_gender]
 
 
+def get_kokoro_voices() -> list[str]:
+    voices_with_gender = [
+        ("af_heart", "Female"),
+        ("af_sarah", "Female"),
+        ("af_bella", "Female"),
+        ("af_nicole", "Female"),
+        ("am_adam", "Male"),
+        ("am_michael", "Male"),
+        ("bf_emma", "Female"),
+        ("bf_isabella", "Female"),
+        ("bm_george", "Male"),
+        ("bm_lewis", "Male"),
+    ]
+    return [f"kokoro:{name}-{gender}" for name, gender in voices_with_gender]
+
+
 _AZURE_VOICES_DATA_FILE = os.path.join(
     os.path.dirname(__file__), "data", "azure_voices.json"
 )
@@ -198,6 +232,10 @@ def is_gemini_voice(voice_name: str):
 def is_mimo_voice(voice_name: str):
     """检查是否是 Xiaomi MiMo TTS 的声音"""
     return voice_name.startswith("mimo:")
+
+
+def is_kokoro_voice(voice_name: str):
+    return voice_name.startswith("kokoro:")
 
 
 def is_no_voice(voice_name: str | None) -> bool:
@@ -360,7 +398,145 @@ def tts(
         else:
             logger.error(f"Invalid mimo voice name format: {voice_name}")
             return None
+    elif is_kokoro_voice(voice_name):
+        parts = voice_name.split(":", 1)
+        if len(parts) == 2:
+            kokoro_voice = parts[1].split("-")[0]
+            return kokoro_tts(
+                text=text,
+                voice_name=kokoro_voice,
+                voice_rate=voice_rate,
+                voice_file=voice_file,
+            )
+        logger.error(f"Invalid Kokoro voice name format: {voice_name}")
+        return None
     return azure_tts_v1(text, voice_name, voice_rate, voice_file)
+
+
+def _file_sha256(file_path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(file_path, "rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _download_kokoro_file(
+    url: str, destination: Path, expected_sha256: str = ""
+) -> None:
+    if destination.is_file() and destination.stat().st_size > 0:
+        if not expected_sha256 or _file_sha256(destination) == expected_sha256:
+            return
+        logger.warning(f"replacing invalid Kokoro asset: {destination.name}")
+        destination.unlink()
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = destination.with_suffix(destination.suffix + ".download")
+    logger.info(f"downloading Kokoro model asset: {destination.name}")
+    try:
+        with requests.get(url, stream=True, timeout=(30, 300)) as response:
+            response.raise_for_status()
+            with open(temporary_path, "wb") as output:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        output.write(chunk)
+        if expected_sha256 and _file_sha256(temporary_path) != expected_sha256:
+            raise RuntimeError(
+                f"Kokoro asset checksum mismatch: {destination.name}"
+            )
+        temporary_path.replace(destination)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+
+
+def _get_kokoro():
+    global _kokoro_instance
+    if _kokoro_instance is not None:
+        return _kokoro_instance
+
+    with _kokoro_lock:
+        if _kokoro_instance is not None:
+            return _kokoro_instance
+        try:
+            from kokoro_onnx import Kokoro
+        except ImportError as exc:
+            raise RuntimeError(
+                "Local Kokoro TTS dependencies are missing. Install "
+                "kokoro-onnx and soundfile."
+            ) from exc
+
+        model_dir = Path(utils.root_dir()) / "models" / "kokoro"
+        model_path = model_dir / "kokoro-v1.0.int8.onnx"
+        voices_path = model_dir / "voices-v1.0.bin"
+        _download_kokoro_file(
+            _KOKORO_MODEL_URL, model_path, _KOKORO_MODEL_SHA256
+        )
+        _download_kokoro_file(
+            _KOKORO_VOICES_URL, voices_path, _KOKORO_VOICES_SHA256
+        )
+        _kokoro_instance = Kokoro(str(model_path), str(voices_path))
+        return _kokoro_instance
+
+
+def kokoro_tts(
+    text: str, voice_name: str, voice_rate: float, voice_file: str
+) -> Union[SubMaker, None]:
+    temporary_wav = f"{voice_file}.kokoro.wav"
+    try:
+        import soundfile as sf
+
+        logger.info(f"start local Kokoro TTS, voice: {voice_name}")
+        kokoro = _get_kokoro()
+        samples, sample_rate = kokoro.create(
+            text.strip(),
+            voice=voice_name,
+            speed=max(0.5, min(2.0, float(voice_rate))),
+            lang="en-us" if voice_name.startswith(("af_", "am_")) else "en-gb",
+        )
+        ensure_file_path_exists(voice_file)
+        sf.write(temporary_wav, samples, sample_rate)
+        ffmpeg = utils.get_ffmpeg_binary()
+        result = subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-i",
+                temporary_wav,
+                "-codec:a",
+                "libmp3lame",
+                "-b:a",
+                "192k",
+                voice_file,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or result.stdout or "").strip())
+
+        audio_clip = AudioFileClip(voice_file)
+        try:
+            audio_duration = audio_clip.duration
+        finally:
+            audio_clip.close()
+        sub_maker = ensure_legacy_submaker_fields(SubMaker())
+        logger.success(
+            f"local Kokoro TTS completed, output: {voice_file}, "
+            f"duration: {audio_duration:.2f}s"
+        )
+        return populate_legacy_submaker_with_full_text(
+            sub_maker=sub_maker,
+            text=text,
+            audio_duration_seconds=audio_duration,
+        )
+    except Exception as exc:
+        logger.error(f"local Kokoro TTS failed: {str(exc)}")
+        return None
+    finally:
+        if os.path.exists(temporary_wav):
+            os.remove(temporary_wav)
 
 
 def convert_rate_to_percent(rate: float) -> str:

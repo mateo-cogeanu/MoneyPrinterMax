@@ -166,6 +166,13 @@ def generate_subtitle(task_id, params, video_script, sub_maker, audio_file):
         logger.warning(f"subtitle file is invalid: {subtitle_path}")
         return ""
 
+    if getattr(params, "subtitle_word_highlight", False):
+        subtitle.create_word_timestamps(
+            audio_file=audio_file,
+            output_file=f"{subtitle_path}.words.json",
+            expected_text=video_script,
+        )
+
     return subtitle_path
 
 

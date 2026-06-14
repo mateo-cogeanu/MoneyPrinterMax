@@ -1,6 +1,7 @@
 import glob
 import itertools
 import io
+import json
 import os
 import random
 import gc
@@ -846,6 +847,91 @@ def _get_visible_center_position(
     return x, y
 
 
+def _find_nth_text_occurrence(text: str, needle: str, occurrence: int) -> int:
+    haystack = text.casefold()
+    target = needle.strip().casefold()
+    if not target:
+        return -1
+    start = 0
+    for _ in range(max(0, occurrence) + 1):
+        index = haystack.find(target, start)
+        if index < 0:
+            return -1
+        start = index + len(target)
+    return index
+
+
+def _highlight_word_overlay(
+    wrapped_text: str,
+    active_word: str,
+    occurrence: int,
+    width: int,
+    height: int,
+    font_path: str,
+    font_size: int,
+    color: str,
+    stroke_color: str,
+    stroke_width: int,
+) -> ImageClip | None:
+    active_index = _find_nth_text_occurrence(
+        wrapped_text, active_word, occurrence
+    )
+    if active_index < 0:
+        # Whisper can keep punctuation attached while the script does not.
+        simplified_word = re.sub(r"^\W+|\W+$", "", active_word)
+        active_index = _find_nth_text_occurrence(
+            wrapped_text, simplified_word, occurrence
+        )
+        active_word = simplified_word
+    if active_index < 0 or not active_word:
+        return None
+
+    font = ImageFont.truetype(font_path, font_size)
+    image = Image.new("RGBA", (max(1, width), max(1, height)), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    lines = wrapped_text.split("\n")
+    line_height = int(font.getbbox("Ag")[3] - font.getbbox("Ag")[1])
+    interline = int(font_size * 0.25)
+    block_height = line_height * len(lines) + interline * max(0, len(lines) - 1)
+    y = max(0, int((height - block_height) / 2))
+    running_index = 0
+
+    for line in lines:
+        line_start = running_index
+        line_end = line_start + len(line)
+        if line_start <= active_index < line_end:
+            local_index = active_index - line_start
+            prefix = line[:local_index]
+            visible_word = line[local_index : local_index + len(active_word)]
+            line_width = draw.textlength(line, font=font)
+            x = (width - line_width) / 2 + draw.textlength(prefix, font=font)
+            draw.text(
+                (x, y),
+                visible_word,
+                font=font,
+                fill=color,
+                stroke_width=max(0, int(stroke_width)),
+                stroke_fill=stroke_color,
+            )
+            return ImageClip(np.array(image), transparent=True)
+        running_index = line_end + 1
+        y += line_height + interline
+    return None
+
+
+def _load_word_timings(subtitle_path: str) -> list[dict]:
+    timing_path = f"{subtitle_path}.words.json"
+    if not os.path.isfile(timing_path):
+        return []
+    try:
+        with open(timing_path, "r", encoding="utf-8") as file:
+            timings = json.load(file)
+        return timings if isinstance(timings, list) else []
+    except Exception as exc:
+        logger.warning(f"failed to load subtitle word timings: {str(exc)}")
+        return []
+
+
 def generate_video(
     video_path: str,
     audio_path: str,
@@ -885,7 +971,13 @@ def generate_video(
             return "#000000" if params.text_background_color else None
         return params.text_background_color
 
-    def create_text_clip(subtitle_item):
+    def create_text_clip(
+        subtitle_item,
+        active_word: str = "",
+        word_occurrence: int = 0,
+        clip_start: float | None = None,
+        clip_end: float | None = None,
+    ):
         params.font_size = int(params.font_size)
         params.stroke_width = int(params.stroke_width)
         phrase = subtitle_item[1]
@@ -1010,9 +1102,28 @@ def generate_video(
                 size=size,
                 text_align="center",
             )
-        duration = subtitle_item[0][1] - subtitle_item[0][0]
-        _clip = _clip.with_start(subtitle_item[0][0])
-        _clip = _clip.with_end(subtitle_item[0][1])
+
+        if active_word:
+            overlay = _highlight_word_overlay(
+                wrapped_text=wrapped_txt,
+                active_word=active_word,
+                occurrence=word_occurrence,
+                width=_clip.w,
+                height=_clip.h,
+                font_path=font_path,
+                font_size=params.font_size,
+                color=getattr(params, "subtitle_highlight_color", "#FFD54A"),
+                stroke_color=params.stroke_color,
+                stroke_width=params.stroke_width,
+            )
+            if overlay is not None:
+                _clip = CompositeVideoClip([_clip, overlay], size=(_clip.w, _clip.h))
+
+        start_time = subtitle_item[0][0] if clip_start is None else clip_start
+        end_time = subtitle_item[0][1] if clip_end is None else clip_end
+        duration = end_time - start_time
+        _clip = _clip.with_start(start_time)
+        _clip = _clip.with_end(end_time)
         _clip = _clip.with_duration(duration)
         if params.subtitle_position == "bottom":
             _clip = _clip.with_position(("center", video_height * 0.95 - _clip.h))
@@ -1052,6 +1163,36 @@ def generate_video(
         for item in sub.subtitles:
             clip = create_text_clip(subtitle_item=item)
             text_clips.append(clip)
+
+        if getattr(params, "subtitle_word_highlight", False):
+            word_timings = _load_word_timings(subtitle_path)
+            timing_index = 0
+            for item in sub.subtitles:
+                subtitle_start, subtitle_end = item[0]
+                occurrence_counts = {}
+                while timing_index < len(word_timings):
+                    timing = word_timings[timing_index]
+                    word_start = float(timing.get("start", 0))
+                    word_end = float(timing.get("end", 0))
+                    if word_end <= subtitle_start:
+                        timing_index += 1
+                        continue
+                    if word_start >= subtitle_end:
+                        break
+
+                    active_word = str(timing.get("word", "")).strip()
+                    normalized_word = active_word.casefold()
+                    occurrence = occurrence_counts.get(normalized_word, 0)
+                    occurrence_counts[normalized_word] = occurrence + 1
+                    highlight_clip = create_text_clip(
+                        subtitle_item=item,
+                        active_word=active_word,
+                        word_occurrence=occurrence,
+                        clip_start=max(subtitle_start, word_start),
+                        clip_end=min(subtitle_end, word_end),
+                    )
+                    text_clips.append(highlight_clip)
+                    timing_index += 1
         video_clip = CompositeVideoClip([video_clip, *text_clips])
 
     bgm_file = get_bgm_file(bgm_type=params.bgm_type, bgm_file=params.bgm_file)

@@ -790,8 +790,10 @@ def render_full_auto_mode():
     with settings_cols[1]:
         st.write(tr("Music and Voice"))
         saved_voice_name = config.ui.get("voice_name", voice.NO_VOICE_NAME)
-        available_voices = [voice.NO_VOICE_NAME] + voice.get_all_azure_voices(
-            filter_locals=None
+        available_voices = (
+            [voice.NO_VOICE_NAME]
+            + voice.get_kokoro_voices()
+            + voice.get_all_azure_voices(filter_locals=None)
         )
         if saved_voice_name not in available_voices:
             saved_voice_name = available_voices[0]
@@ -909,6 +911,18 @@ def render_full_auto_mode():
             config.ui.get("text_fore_color", "#FFFFFF"),
             key="full_auto_text_color",
         )
+        auto_params.subtitle_word_highlight = st.checkbox(
+            tr("Highlight Spoken Word"),
+            value=bool(config.ui.get("subtitle_word_highlight", False)),
+            help=tr("Highlight Spoken Word Help"),
+            key="full_auto_subtitle_word_highlight",
+        )
+        if auto_params.subtitle_word_highlight:
+            auto_params.subtitle_highlight_color = st.color_picker(
+                tr("Spoken Word Highlight Color"),
+                config.ui.get("subtitle_highlight_color", "#FFD54A"),
+                key="full_auto_subtitle_highlight_color",
+            )
         auto_params.font_size = st.slider(
             tr("Font Size"),
             30,
@@ -1945,6 +1959,7 @@ with middle_panel:
         # 添加TTS服务器选择下拉框
         tts_servers = [
             (voice.NO_VOICE_NAME, tr("No Voice")),
+            ("kokoro", "Local Kokoro (Expressive)"),
             ("azure-tts-v1", "Azure TTS V1"),
             ("azure-tts-v2", "Azure TTS V2"),
             ("siliconflow", "SiliconFlow TTS"),
@@ -1977,6 +1992,8 @@ with middle_panel:
             # 无配音是显式模式，只提供一个稳定 sentinel。这样普通 TTS 的空配置
             # 不会被误判为静音，后端也能继续通过同一条音频/字幕流程生成视频。
             filtered_voices = [voice.NO_VOICE_NAME]
+        elif selected_tts_server == "kokoro":
+            filtered_voices = voice.get_kokoro_voices()
         elif selected_tts_server == "siliconflow":
             # 获取硅基流动的声音列表
             filtered_voices = voice.get_siliconflow_voices()
@@ -2162,6 +2179,11 @@ with middle_panel:
 
             config.app["mimo_api_key"] = mimo_api_key
 
+        if selected_tts_server == "kokoro" or (
+            voice_name and voice.is_kokoro_voice(voice_name)
+        ):
+            st.info(tr("Kokoro TTS Settings"))
+
         params.voice_volume = st.selectbox(
             tr("Speech Volume"),
             options=[0.6, 0.8, 1.0, 1.2, 1.5, 2.0, 3.0, 4.0, 5.0],
@@ -2288,6 +2310,19 @@ with right_panel:
             saved_font_size = config.ui.get("font_size", 60)
             params.font_size = st.slider(tr("Font Size"), 30, 100, saved_font_size)
             config.ui["font_size"] = params.font_size
+
+        params.subtitle_word_highlight = st.checkbox(
+            tr("Highlight Spoken Word"),
+            value=bool(config.ui.get("subtitle_word_highlight", False)),
+            help=tr("Highlight Spoken Word Help"),
+        )
+        config.ui["subtitle_word_highlight"] = params.subtitle_word_highlight
+        if params.subtitle_word_highlight:
+            params.subtitle_highlight_color = st.color_picker(
+                tr("Spoken Word Highlight Color"),
+                config.ui.get("subtitle_highlight_color", "#FFD54A"),
+            )
+            config.ui["subtitle_highlight_color"] = params.subtitle_highlight_color
 
         stroke_cols = st.columns([0.3, 0.7])
         with stroke_cols[0]:

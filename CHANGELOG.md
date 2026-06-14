@@ -202,6 +202,20 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 - Candidate duration now counts the configured maximum clip duration instead of the full source-file duration, preventing long files from being mistaken for many seconds of unique usable footage.
 - Added regression coverage proving that all keywords are searched even when the first keyword returns long videos.
 
+### Local Expressive Voice And Spoken-Word Highlighting
+
+- Added Local Kokoro as an expressive offline speech synthesis provider in Create Video and Full Auto.
+- Uses the quantized Kokoro-82M ONNX model to keep the first download near 88 MB and runtime resource usage modest.
+- Downloads the fixed Kokoro model and voice assets once into `models/kokoro`, then reuses them for later videos.
+- Verifies the downloaded Kokoro model and voice assets against pinned SHA-256 checksums before loading them.
+- Added American and British English voice choices with female and male options.
+- Added `Highlight Spoken Word` subtitle controls and a configurable highlight color.
+- Uses a separate local Whisper Tiny alignment pass only when spoken-word highlighting is enabled.
+- Stores word timings beside the generated SRT and overlays the currently spoken word without removing the normal readable subtitle.
+- Falls back to ordinary subtitles when word alignment dependencies or model files are unavailable.
+- Added focused regression tests for local voice dispatch, model asset reuse, word timing output, and repeated-word positioning.
+- Reworked YouTube OAuth URL construction to remain valid on the project's supported Python 3.11 runtime.
+
 ### Files Changed
 
 - `AGENTS.md`

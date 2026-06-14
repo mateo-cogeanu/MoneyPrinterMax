@@ -16,6 +16,7 @@ model_size = config.whisper.get("model_size", "large-v3")
 device = config.whisper.get("device", "cpu")
 compute_type = config.whisper.get("compute_type", "int8")
 model = None
+alignment_model = None
 
 
 def create(audio_file, subtitle_file: str = ""):
@@ -140,6 +141,74 @@ def create(audio_file, subtitle_file: str = ""):
     with open(subtitle_file, "w", encoding="utf-8") as f:
         f.write(sub)
     logger.info(f"subtitle file created: {subtitle_file}")
+
+
+def create_word_timestamps(
+    audio_file: str, output_file: str, expected_text: str = ""
+) -> str:
+    global alignment_model
+    if WhisperModel is None:
+        logger.warning("faster_whisper is unavailable; word highlighting disabled")
+        return ""
+
+    alignment_size = config.whisper.get("alignment_model_size", "tiny")
+    alignment_device = str(
+        config.whisper.get("alignment_device", "cpu")
+    ).lower()
+    alignment_compute_type = config.whisper.get(
+        "alignment_compute_type", "int8"
+    )
+    if alignment_model is None:
+        model_path = f"{utils.root_dir()}/models/whisper-{alignment_size}"
+        if not os.path.isfile(os.path.join(model_path, "model.bin")):
+            model_path = alignment_size
+        logger.info(
+            "loading lightweight word alignment model: "
+            f"{model_path}, device: {alignment_device}, "
+            f"compute_type: {alignment_compute_type}"
+        )
+        try:
+            alignment_model = WhisperModel(
+                model_size_or_path=model_path,
+                device=alignment_device,
+                compute_type=alignment_compute_type,
+            )
+        except Exception as exc:
+            logger.warning(f"failed to load word alignment model: {str(exc)}")
+            return ""
+
+    try:
+        segments, _ = alignment_model.transcribe(
+            audio_file,
+            beam_size=1,
+            word_timestamps=True,
+            vad_filter=False,
+            condition_on_previous_text=False,
+            initial_prompt=(expected_text or "")[:1000] or None,
+        )
+        words = []
+        for segment in segments:
+            for word in segment.words or []:
+                word_text = str(word.word or "").strip()
+                if not word_text or word.start is None or word.end is None:
+                    continue
+                words.append(
+                    {
+                        "word": word_text,
+                        "start": round(float(word.start), 3),
+                        "end": round(float(word.end), 3),
+                    }
+                )
+        if not words:
+            logger.warning("word alignment returned no timed words")
+            return ""
+        with open(output_file, "w", encoding="utf-8") as file:
+            json.dump(words, file, ensure_ascii=False, indent=2)
+        logger.info(f"word timing file created: {output_file}, words: {len(words)}")
+        return output_file
+    except Exception as exc:
+        logger.warning(f"word alignment failed; using normal subtitles: {str(exc)}")
+        return ""
 
 
 def file_to_subtitles(filename):

@@ -104,6 +104,8 @@ class VideoParams(BaseModel):
     text_fore_color: Optional[str] = "#FFFFFF"
     text_background_color: Union[bool, str] = True
     rounded_subtitle_background: bool = False
+    subtitle_word_highlight: bool = False
+    subtitle_highlight_color: str = "#FFD54A"
 
     font_size: int = 60
     stroke_color: Optional[str] = "#000000"
@@ -128,6 +130,8 @@ class SubtitleRequest(BaseModel):
     text_fore_color: Optional[str] = "#FFFFFF"
     text_background_color: Union[bool, str] = True
     rounded_subtitle_background: bool = False
+    subtitle_word_highlight: bool = False
+    subtitle_highlight_color: str = "#FFD54A"
     font_size: int = 60
     stroke_color: Optional[str] = "#000000"
     stroke_width: float = 1.5

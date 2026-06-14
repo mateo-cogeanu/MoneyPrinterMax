@@ -128,7 +128,7 @@ def _exchange_code_for_credentials(client_secret_file: str, credentials_cls):
     server.timeout = 300
     redirect_uri = f"http://{redirect_host}:{server.server_port}/"
     state = secrets.token_urlsafe(24)
-    auth_url = f"{auth_uri}?{urlencode({
+    auth_params = {
         'client_id': client_id,
         'redirect_uri': redirect_uri,
         'response_type': 'code',
@@ -136,7 +136,8 @@ def _exchange_code_for_credentials(client_secret_file: str, credentials_cls):
         'access_type': 'offline',
         'prompt': 'consent',
         'state': state,
-    })}"
+    }
+    auth_url = f"{auth_uri}?{urlencode(auth_params)}"
 
     webbrowser.open(auth_url)
     server.handle_request()

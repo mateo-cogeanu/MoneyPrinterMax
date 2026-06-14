@@ -129,6 +129,13 @@ class TestVideoService(unittest.TestCase):
             if os.path.exists(safe_img_path):
                 os.remove(safe_img_path)
 
+    def test_find_nth_text_occurrence_handles_repeated_spoken_words(self):
+        phrase = "This local voice sounds local and expressive"
+
+        self.assertEqual(vd._find_nth_text_occurrence(phrase, "local", 0), 5)
+        self.assertEqual(vd._find_nth_text_occurrence(phrase, "local", 1), 24)
+        self.assertEqual(vd._find_nth_text_occurrence(phrase, "missing", 0), -1)
+
     def test_preprocess_video_rejects_material_outside_local_videos(self):
         """
         local 素材路径来自 API 参数，不能允许任意绝对路径进入 MoviePy。
