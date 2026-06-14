@@ -935,15 +935,16 @@ def rank_stock_video_candidates(
     prompt = f"""
 # Role: Fast Stock Video Candidate Ranker
 
-Choose the closest stock-video candidates for a short video search term.
+Choose only the stock-video candidates that are visually usable for a short video search term.
 
 ## Rules:
 1. Return only JSON: {{"ranked_indices": [0, 2, 1]}}.
-2. Rank from best visual match to weakest usable fallback.
+2. Rank selected candidates from best visual match to weakest usable fallback.
 3. Prefer exact subject/object/action matches.
 4. If no exact match exists, keep useful adjacent footage that could still support the narration, such as a person demonstrating, working, using tools, or showing the closest visible setting.
 5. Reject clearly wrong scenery, parties, laser shows, unrelated vehicles, unrelated products, or generic beauty footage unless the search term is about those things.
-6. Return at most {max_results} indices.
+6. Do not include a candidate merely to fill the list. Returning an empty list is valid when none are usable.
+7. Return at most {max_results} indices.
 
 ## Search Term
 {search_term}
@@ -957,10 +958,12 @@ Choose the closest stock-video candidates for a short video search term.
         if not response or "Error: " in response:
             raise ValueError(response or "empty ranking response")
         result = json.loads(_strip_code_fence(response))
-        if isinstance(result, dict):
-            indices = result.get("ranked_indices", [])
-        else:
+        if isinstance(result, dict) and isinstance(result.get("ranked_indices"), list):
+            indices = result["ranked_indices"]
+        elif isinstance(result, list):
             indices = result
+        else:
+            raise ValueError("ranking response does not contain ranked_indices")
         ranked_indices = []
         for index in indices:
             if not isinstance(index, int):
@@ -969,8 +972,7 @@ Choose the closest stock-video candidates for a short video search term.
                 ranked_indices.append(index)
             if len(ranked_indices) >= max_results:
                 break
-        if ranked_indices:
-            return ranked_indices
+        return ranked_indices
     except Exception as exc:
         logger.warning(
             "stock candidate AI ranking failed, using local ranking: "
@@ -982,7 +984,7 @@ Choose the closest stock-video candidates for a short video search term.
         for index, title in enumerate(titles)
     ]
     scored_indices.sort(key=lambda candidate: (-candidate[0], candidate[1]))
-    return [index for score, index in scored_indices if score > 0][:max_results]
+    return [index for score, index in scored_indices if score >= 35][:max_results]
 
 
 def expand_stock_search_terms(

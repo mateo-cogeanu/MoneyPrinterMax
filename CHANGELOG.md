@@ -54,7 +54,8 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 - Added tests for subject anchoring and unrelated brand/drink term cleanup.
 - Stock candidates now carry provider metadata such as title/tags/search term, and an LLM relevance judge rejects unrelated candidates before download.
 - Added fallback relevance checks to skip obvious mismatches like `laser show` or `ship at sea` when the script is about technical subjects such as Docker.
-- Reworked stock candidate selection into a faster ranking pass that accepts clear local matches, uses one batched AI ranking call for ambiguous candidates per search term, and keeps the closest usable fallback visuals when an exact stock match is unavailable.
+- Reworked stock candidate selection into one batched AI selection call per search term, including candidates with exact keyword matches, while keeping the closest usable fallback visuals when an exact stock match is unavailable.
+- Fixed AI-rejected stock candidates being accidentally appended back into the usable pool after ranking.
 - Added AI-generated backup stock searches when the accepted material pool is shorter than the narration, reducing repeated clip looping in longer generated videos.
 
 ### WebUI: YouTube Automation Fixes

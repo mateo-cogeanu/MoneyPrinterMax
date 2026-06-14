@@ -222,6 +222,30 @@ class TestScriptPromptOptions(unittest.TestCase):
         self.assertEqual(ranked, [2, 0])
         generate.assert_called_once()
 
+    def test_rank_stock_video_candidates_accepts_empty_ai_selection(self):
+        with patch.object(
+            llm, "_generate_response", return_value='{"ranked_indices": []}'
+        ):
+            ranked = llm.rank_stock_video_candidates(
+                "baking soda cleaning",
+                ["coca cola bottle pouring", "laser light show"],
+            )
+
+        self.assertEqual(ranked, [])
+
+    def test_rank_stock_video_candidates_uses_strict_local_failure_fallback(self):
+        with patch.object(llm, "_generate_response", return_value="Error: unavailable"):
+            ranked = llm.rank_stock_video_candidates(
+                "baking soda cleaning",
+                [
+                    "random abstract animation",
+                    "person cleaning kitchen sink",
+                    "baking soda powder",
+                ],
+            )
+
+        self.assertEqual(ranked, [2, 1])
+
     def test_expand_stock_search_terms_generates_backup_queries(self):
         with patch.object(
             llm,

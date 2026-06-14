@@ -18,6 +18,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
     def setUp(self):
         self.original_app_config = dict(config.app)
         self.original_proxy_config = dict(config.proxy)
+        material._stock_rank_cache.clear()
+        material._stock_relevance_cache.clear()
 
     def tearDown(self):
         config.app.clear()
@@ -216,8 +218,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
             patch.object(material, "search_videos_pexels", side_effect=fake_search),
             patch.object(
                 material.llm,
-                "validate_stock_video_candidate",
-                side_effect=lambda term, title: "docker" in title,
+                "rank_stock_video_candidates",
+                return_value=[0],
             ),
             patch.object(material, "save_video", side_effect=fake_save_video),
         ):
@@ -323,6 +325,13 @@ class TestMaterialTlsVerification(unittest.TestCase):
                 "expand_stock_search_terms",
                 return_value=["baking soda cleaning"],
             ),
+            patch.object(
+                material.llm,
+                "rank_stock_video_candidates",
+                side_effect=lambda search_term, candidate_titles, max_results: list(
+                    range(min(len(candidate_titles), max_results))
+                ),
+            ),
             patch.object(material, "save_video", side_effect=fake_save_video),
         ):
             result = material.download_videos(
@@ -374,7 +383,52 @@ class TestMaterialTlsVerification(unittest.TestCase):
                 "https://v.example/person-1.mp4",
             ],
         )
-        self.assertEqual(len(ranked), 6)
+        self.assertEqual(len(ranked), 3)
+
+    def test_rank_stock_candidates_does_not_restore_ai_rejections(self):
+        items = [
+            material.MaterialInfo(
+                provider="pexels",
+                url="https://v.example/good.mp4",
+                duration=3,
+                title="person cleaning kitchen sink",
+            ),
+            material.MaterialInfo(
+                provider="pexels",
+                url="https://v.example/bad.mp4",
+                duration=3,
+                title="soft drink bottle on table",
+            ),
+        ]
+
+        with patch.object(
+            material.llm,
+            "rank_stock_video_candidates",
+            return_value=[0],
+        ):
+            ranked = material.rank_stock_candidates("baking soda cleaning", items)
+
+        self.assertEqual([item.url for item in ranked], ["https://v.example/good.mp4"])
+
+    def test_rank_stock_candidates_sends_exact_keyword_matches_to_ai(self):
+        items = [
+            material.MaterialInfo(
+                provider="pexels",
+                url="https://v.example/exact.mp4",
+                duration=3,
+                title="baking soda product commercial",
+            )
+        ]
+
+        with patch.object(
+            material.llm,
+            "rank_stock_video_candidates",
+            return_value=[],
+        ) as rank:
+            ranked = material.rank_stock_candidates("baking soda", items)
+
+        rank.assert_called_once()
+        self.assertEqual(ranked, [])
 
 
 class TestCoverrProvider(unittest.TestCase):
