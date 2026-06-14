@@ -18,7 +18,8 @@ from app.utils import utils
 _api_key_counter = 0
 _api_key_lock = threading.Lock()
 _stock_relevance_cache = {}
-_MAX_STOCK_LLM_CHECKS_PER_TERM = 3
+_stock_rank_cache = {}
+_MAX_STOCK_AI_CANDIDATES_PER_TERM = 10
 
 
 def _clean_stock_text(value) -> str:
@@ -78,40 +79,68 @@ def rank_stock_candidates(search_term: str, items: List[MaterialInfo]) -> List[M
     """
     Rank stock candidates quickly and keep usable fallback visuals.
 
-    The LLM is only used for a few ambiguous candidates. Strong local matches are
-    accepted immediately, obvious mismatches are skipped, and broad but safe
-    fallback footage stays available so a term never collapses to zero results.
+    Strong local matches are accepted immediately, obvious mismatches are skipped,
+    and one batched AI call ranks the closest fallback visuals for the term.
     """
     ranked_items = []
-    fallback_items = []
-    llm_checks = 0
+    ai_candidates = []
+    overflow_candidates = []
 
     for index, item in enumerate(items):
         score = llm.stock_candidate_relevance_score(search_term, item.title)
         if not item.title:
             score = 50
 
-        if score >= 45:
+        if score >= 55:
             ranked_items.append((score, index, item))
             continue
 
-        if score >= 35 and llm_checks < _MAX_STOCK_LLM_CHECKS_PER_TERM:
-            llm_checks += 1
-            if is_stock_candidate_related(search_term, item):
-                ranked_items.append((70, index, item))
-                continue
-
         if score > 0:
-            fallback_items.append((score, index, item))
+            if len(ai_candidates) < _MAX_STOCK_AI_CANDIDATES_PER_TERM:
+                ai_candidates.append((score, index, item))
+            else:
+                overflow_candidates.append((score, index, item))
         else:
             logger.info(
                 f"skip obvious stock mismatch: search='{search_term}', title='{item.title}'"
             )
 
     ranked_items.sort(key=lambda candidate: (-candidate[0], candidate[1]))
-    fallback_items.sort(key=lambda candidate: (-candidate[0], candidate[1]))
     ordered_items = [item for _, _, item in ranked_items]
-    ordered_items.extend(item for _, _, item in fallback_items)
+
+    if ai_candidates:
+        cache_key = (
+            search_term.strip().lower(),
+            tuple(item.title.strip().lower() for _, _, item in ai_candidates),
+        )
+        if cache_key in _stock_rank_cache:
+            ranked_indices = _stock_rank_cache[cache_key]
+        else:
+            ranked_indices = llm.rank_stock_video_candidates(
+                search_term=search_term,
+                candidate_titles=[item.title for _, _, item in ai_candidates],
+                max_results=len(ai_candidates),
+            )
+            _stock_rank_cache[cache_key] = ranked_indices
+
+        used_indices = set()
+        for ai_index in ranked_indices:
+            if not isinstance(ai_index, int) or ai_index in used_indices:
+                continue
+            if 0 <= ai_index < len(ai_candidates):
+                ordered_items.append(ai_candidates[ai_index][2])
+                used_indices.add(ai_index)
+
+        leftovers = [
+            candidate
+            for candidate_index, candidate in enumerate(ai_candidates)
+            if candidate_index not in used_indices
+        ]
+        leftovers.sort(key=lambda candidate: (-candidate[0], candidate[1]))
+        ordered_items.extend(item for _, _, item in leftovers)
+
+    overflow_candidates.sort(key=lambda candidate: (-candidate[0], candidate[1]))
+    ordered_items.extend(item for _, _, item in overflow_candidates)
     return ordered_items
 
 

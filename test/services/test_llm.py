@@ -206,6 +206,22 @@ class TestScriptPromptOptions(unittest.TestCase):
                 llm.validate_stock_video_candidate("docker apps", "laser show")
             )
 
+    def test_rank_stock_video_candidates_uses_single_ai_response(self):
+        with patch.object(
+            llm, "_generate_response", return_value='{"ranked_indices": [2, 0]}'
+        ) as generate:
+            ranked = llm.rank_stock_video_candidates(
+                "baking soda cleaning",
+                [
+                    "person cleaning a kitchen sink",
+                    "coca cola bottle pouring",
+                    "baking soda powder on counter",
+                ],
+            )
+
+        self.assertEqual(ranked, [2, 0])
+        generate.assert_called_once()
+
     def test_video_script_request_rejects_invalid_advanced_options(self):
         """
         API 请求模型需要限制高级 prompt 参数，避免外部调用绕过 WebUI

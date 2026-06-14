@@ -261,6 +261,11 @@ class TestMaterialTlsVerification(unittest.TestCase):
         with (
             patch.dict(config.app, {"material_directory": ""}),
             patch.object(material, "search_videos_pexels", side_effect=fake_search),
+            patch.object(
+                material.llm,
+                "rank_stock_video_candidates",
+                return_value=[0],
+            ),
             patch.object(material, "save_video", side_effect=fake_save_video),
         ):
             result = material.download_videos(
@@ -274,7 +279,7 @@ class TestMaterialTlsVerification(unittest.TestCase):
         self.assertEqual(downloaded_urls, ["https://v.example/computer.mp4"])
         self.assertEqual(result, ["/tmp/computer.mp4"])
 
-    def test_rank_stock_candidates_limits_llm_checks_for_ambiguous_items(self):
+    def test_rank_stock_candidates_batches_ai_for_ambiguous_items(self):
         items = [
             material.MaterialInfo(
                 provider="pexels",
@@ -286,13 +291,21 @@ class TestMaterialTlsVerification(unittest.TestCase):
         ]
 
         with patch.object(
-            material,
-            "is_stock_candidate_related",
-            return_value=False,
-        ) as validate:
+            material.llm,
+            "rank_stock_video_candidates",
+            return_value=[2, 0, 1],
+        ) as rank:
             ranked = material.rank_stock_candidates("docker containers", items)
 
-        self.assertEqual(validate.call_count, 3)
+        rank.assert_called_once()
+        self.assertEqual(
+            [item.url for item in ranked[:3]],
+            [
+                "https://v.example/person-2.mp4",
+                "https://v.example/person-0.mp4",
+                "https://v.example/person-1.mp4",
+            ],
+        )
         self.assertEqual(len(ranked), 6)
 
 

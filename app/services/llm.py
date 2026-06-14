@@ -852,65 +852,25 @@ def stock_candidate_relevance_score(search_term: str, candidate_title: str) -> i
     if title_tokens.intersection(blocked_visuals):
         return 0
 
-    tech_subject_tokens = {
-        "ai",
-        "api",
-        "app",
-        "apps",
-        "automation",
-        "cloud",
-        "code",
-        "coding",
-        "computer",
-        "container",
-        "containers",
-        "data",
-        "developer",
-        "docker",
-        "javascript",
-        "programming",
-        "python",
-        "server",
-        "software",
-        "tech",
-        "technology",
-        "website",
-    }
-    tech_visual_tokens = {
-        "button",
-        "buttons",
-        "code",
-        "coding",
-        "computer",
-        "dashboard",
-        "developer",
-        "keyboard",
-        "laptop",
-        "monitor",
-        "office",
-        "programmer",
-        "screen",
-        "server",
-        "typing",
-        "workstation",
-    }
-    if search_tokens.intersection(tech_subject_tokens) and title_tokens.intersection(
-        tech_visual_tokens
-    ):
-        return 45
-
     generic_human_tokens = {
         "business",
+        "computer",
+        "dashboard",
         "desk",
         "hands",
         "home",
+        "keyboard",
+        "laptop",
         "man",
+        "monitor",
         "office",
         "people",
         "person",
+        "screen",
         "woman",
         "work",
         "working",
+        "workstation",
     }
     if title_tokens.intersection(generic_human_tokens):
         return 35
@@ -957,6 +917,72 @@ Decide whether a stock video candidate is visually related enough for a short vi
         )
 
     return _stock_relevance_fallback(search_term, candidate_title)
+
+
+def rank_stock_video_candidates(
+    search_term: str, candidate_titles: List[str], max_results: int = 8
+) -> List[int]:
+    search_term = (search_term or "").strip()
+    titles = [str(title or "").strip() for title in candidate_titles]
+    indexed_titles = [(index, title) for index, title in enumerate(titles) if title]
+    if not search_term or not indexed_titles:
+        return list(range(min(len(titles), max_results)))
+
+    titles_json = json.dumps(
+        [{"index": index, "title": title} for index, title in indexed_titles],
+        ensure_ascii=False,
+    )
+    prompt = f"""
+# Role: Fast Stock Video Candidate Ranker
+
+Choose the closest stock-video candidates for a short video search term.
+
+## Rules:
+1. Return only JSON: {{"ranked_indices": [0, 2, 1]}}.
+2. Rank from best visual match to weakest usable fallback.
+3. Prefer exact subject/object/action matches.
+4. If no exact match exists, keep useful adjacent footage that could still support the narration, such as a person demonstrating, working, using tools, or showing the closest visible setting.
+5. Reject clearly wrong scenery, parties, laser shows, unrelated vehicles, unrelated products, or generic beauty footage unless the search term is about those things.
+6. Return at most {max_results} indices.
+
+## Search Term
+{search_term}
+
+## Candidates
+{titles_json}
+""".strip()
+
+    try:
+        response = _generate_response(prompt)
+        if not response or "Error: " in response:
+            raise ValueError(response or "empty ranking response")
+        result = json.loads(_strip_code_fence(response))
+        if isinstance(result, dict):
+            indices = result.get("ranked_indices", [])
+        else:
+            indices = result
+        ranked_indices = []
+        for index in indices:
+            if not isinstance(index, int):
+                continue
+            if 0 <= index < len(titles) and index not in ranked_indices:
+                ranked_indices.append(index)
+            if len(ranked_indices) >= max_results:
+                break
+        if ranked_indices:
+            return ranked_indices
+    except Exception as exc:
+        logger.warning(
+            "stock candidate AI ranking failed, using local ranking: "
+            f"search_term={search_term}, error={str(exc)}"
+        )
+
+    scored_indices = [
+        (stock_candidate_relevance_score(search_term, title), index)
+        for index, title in enumerate(titles)
+    ]
+    scored_indices.sort(key=lambda candidate: (-candidate[0], candidate[1]))
+    return [index for score, index in scored_indices if score > 0][:max_results]
 
 
 def generate_terms(
