@@ -53,6 +53,8 @@ class MaterialInfo:
     provider: str = "pexels"
     url: str = ""
     duration: int = 0
+    title: str = ""
+    search_term: str = ""
 
 
 class VideoParams(BaseModel):

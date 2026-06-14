@@ -38,6 +38,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
             json=lambda: {
                 "videos": [
                     {
+                        "url": "https://www.pexels.com/video/cat-playing-at-home-123",
+                        "user": {"name": "Cat Studio"},
                         "duration": 8,
                         "video_files": [
                             {
@@ -55,6 +57,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
             results = material.search_videos_pexels("cat", minimum_duration=1)
 
         self.assertEqual(len(results), 1)
+        self.assertIn("cat playing at home", results[0].title)
+        self.assertEqual(results[0].search_term, "cat")
         self.assertTrue(get.call_args.kwargs["verify"])
 
     def test_search_pixabay_allows_explicit_tls_disable_for_proxy(self):
@@ -70,6 +74,7 @@ class TestMaterialTlsVerification(unittest.TestCase):
             json=lambda: {
                 "hits": [
                     {
+                        "tags": "cat, animal, home",
                         "duration": 8,
                         "videos": {
                             "large": {
@@ -86,6 +91,8 @@ class TestMaterialTlsVerification(unittest.TestCase):
             results = material.search_videos_pixabay("cat", minimum_duration=1)
 
         self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].title, "cat, animal, home")
+        self.assertEqual(results[0].search_term, "cat")
         self.assertFalse(get.call_args.kwargs["verify"])
 
     def test_save_video_uses_tls_verification_by_default(self):
@@ -177,6 +184,53 @@ class TestMaterialTlsVerification(unittest.TestCase):
             ],
         )
         self.assertEqual(result, ["/tmp/a1.mp4", "/tmp/b1.mp4", "/tmp/a2.mp4"])
+
+    def test_download_videos_skips_unrelated_stock_candidates(self):
+        search_results = {
+            "docker apps": [
+                material.MaterialInfo(
+                    provider="pexels",
+                    url="https://v.example/laser.mp4",
+                    duration=3,
+                    title="laser light show",
+                ),
+                material.MaterialInfo(
+                    provider="pexels",
+                    url="https://v.example/docker.mp4",
+                    duration=3,
+                    title="docker containers dashboard",
+                ),
+            ],
+        }
+        downloaded_urls = []
+
+        def fake_search(search_term, minimum_duration, video_aspect):
+            return search_results[search_term]
+
+        def fake_save_video(video_url, save_dir=""):
+            downloaded_urls.append(video_url)
+            return f"/tmp/{video_url.rsplit('/', 1)[-1]}"
+
+        with (
+            patch.dict(config.app, {"material_directory": ""}),
+            patch.object(material, "search_videos_pexels", side_effect=fake_search),
+            patch.object(
+                material.llm,
+                "validate_stock_video_candidate",
+                side_effect=lambda term, title: "docker" in title,
+            ),
+            patch.object(material, "save_video", side_effect=fake_save_video),
+        ):
+            result = material.download_videos(
+                task_id="related-materials",
+                search_terms=["docker apps"],
+                source="pexels",
+                audio_duration=2,
+                max_clip_duration=3,
+            )
+
+        self.assertEqual(downloaded_urls, ["https://v.example/docker.mp4"])
+        self.assertEqual(result, ["/tmp/docker.mp4"])
 
 
 class TestCoverrProvider(unittest.TestCase):

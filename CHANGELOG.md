@@ -43,6 +43,8 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 - Strengthened stock-video search term generation so terms must be concrete visible phrases tied to the main subject.
 - Added a search-term post-processor that keeps the full subject anchor attached to stock searches, reducing broad mismatches like `baking soda` drifting into soda drink clips.
 - Added tests for subject anchoring and unrelated brand/drink term cleanup.
+- Stock candidates now carry provider metadata such as title/tags/search term, and an LLM relevance judge rejects unrelated candidates before download.
+- Added fallback relevance checks to skip obvious mismatches like `laser show` or `ship at sea` when the script is about technical subjects such as Docker.
 
 ### WebUI: YouTube Automation Fixes
 

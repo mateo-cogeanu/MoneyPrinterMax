@@ -822,6 +822,75 @@ def improve_stock_search_terms(
     return improved_terms
 
 
+def _stock_relevance_fallback(search_term: str, candidate_title: str) -> bool:
+    search_tokens = set(_search_term_tokens(search_term))
+    title_tokens = set(_search_term_tokens(candidate_title))
+    if not search_tokens or not title_tokens:
+        return True
+
+    if search_tokens.intersection(title_tokens):
+        return True
+
+    blocked_visuals = {
+        "beach",
+        "boat",
+        "laser",
+        "lights",
+        "ocean",
+        "party",
+        "sea",
+        "ship",
+        "show",
+        "stage",
+        "waves",
+    }
+    if title_tokens.intersection(blocked_visuals):
+        return False
+
+    return False
+
+
+def validate_stock_video_candidate(search_term: str, candidate_title: str) -> bool:
+    search_term = (search_term or "").strip()
+    candidate_title = (candidate_title or "").strip()
+    if not search_term or not candidate_title:
+        return True
+
+    prompt = f"""
+# Role: Stock Video Relevance Judge
+
+Decide whether a stock video candidate is visually related enough for a short video.
+
+## Rules:
+1. Return only JSON: {{"related": true}} or {{"related": false}}.
+2. The candidate must show the same object, subject, setting, or action as the search term.
+3. Reject generic beautiful footage when it does not match the search term.
+4. Reject laser shows, parties, ships, beaches, ocean, sea, or random scenery unless the search term is actually about those things.
+5. Be strict. If a viewer would notice the mismatch, return false.
+
+## Search Term
+{search_term}
+
+## Candidate Title
+{candidate_title}
+""".strip()
+
+    try:
+        response = _generate_response(prompt)
+        if not response or "Error: " in response:
+            raise ValueError(response or "empty relevance response")
+        result = json.loads(_strip_code_fence(response))
+        if isinstance(result, dict) and isinstance(result.get("related"), bool):
+            return result["related"]
+    except Exception as exc:
+        logger.warning(
+            "stock relevance LLM validation failed, using fallback: "
+            f"search_term={search_term}, title={candidate_title}, error={str(exc)}"
+        )
+
+    return _stock_relevance_fallback(search_term, candidate_title)
+
+
 def generate_terms(
     video_subject: str,
     video_script: str,

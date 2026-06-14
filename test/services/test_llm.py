@@ -182,6 +182,25 @@ class TestScriptPromptOptions(unittest.TestCase):
             ],
         )
 
+    def test_stock_relevance_fallback_rejects_obvious_mismatch(self):
+        self.assertFalse(
+            llm._stock_relevance_fallback("docker apps", "laser light show")
+        )
+        self.assertFalse(
+            llm._stock_relevance_fallback("docker containers", "ship on the sea")
+        )
+        self.assertTrue(
+            llm._stock_relevance_fallback("docker apps", "docker containers dashboard")
+        )
+
+    def test_validate_stock_video_candidate_uses_llm_json(self):
+        with patch.object(
+            llm, "_generate_response", return_value='{"related": false}'
+        ):
+            self.assertFalse(
+                llm.validate_stock_video_candidate("docker apps", "laser show")
+            )
+
     def test_video_script_request_rejects_invalid_advanced_options(self):
         """
         API 请求模型需要限制高级 prompt 参数，避免外部调用绕过 WebUI

@@ -1,5 +1,6 @@
 import os
 import random
+import re
 import threading
 from typing import List
 from urllib.parse import urlencode
@@ -10,11 +11,66 @@ from moviepy.video.io.VideoFileClip import VideoFileClip
 
 from app.config import config
 from app.models.schema import MaterialInfo, VideoAspect, VideoConcatMode
+from app.services import llm
 from app.utils import utils
 
 # Thread-safe counter for API key rotation
 _api_key_counter = 0
 _api_key_lock = threading.Lock()
+_stock_relevance_cache = {}
+
+
+def _clean_stock_text(value) -> str:
+    if isinstance(value, list):
+        value = " ".join(str(item) for item in value)
+    value = str(value or "")
+    value = re.sub(r"https?://\S+", " ", value)
+    value = re.sub(r"[_/\\-]+", " ", value)
+    value = re.sub(r"\s+", " ", value)
+    return value.strip()
+
+
+def _pexels_title(video: dict) -> str:
+    url_slug = (video.get("url") or "").rstrip("/").rsplit("/", 1)[-1]
+    pieces = [url_slug]
+    user_name = (video.get("user") or {}).get("name", "")
+    if user_name:
+        pieces.append(user_name)
+    return _clean_stock_text(" ".join(pieces))
+
+
+def _pixabay_title(video: dict) -> str:
+    return _clean_stock_text(video.get("tags", ""))
+
+
+def _coverr_title(video: dict) -> str:
+    return _clean_stock_text(
+        " ".join(
+            str(piece or "")
+            for piece in [
+                video.get("title"),
+                video.get("description"),
+                video.get("tags"),
+            ]
+        )
+    )
+
+
+def is_stock_candidate_related(search_term: str, item: MaterialInfo) -> bool:
+    if not item.title:
+        return True
+
+    cache_key = (search_term.strip().lower(), item.title.strip().lower())
+    if cache_key in _stock_relevance_cache:
+        return _stock_relevance_cache[cache_key]
+
+    related = llm.validate_stock_video_candidate(search_term, item.title)
+    _stock_relevance_cache[cache_key] = related
+    if not related:
+        logger.info(
+            f"reject unrelated stock video: search='{search_term}', title='{item.title}'"
+        )
+    return related
 
 
 def _get_tls_verify() -> bool:
@@ -100,6 +156,8 @@ def search_videos_pexels(
                     item.provider = "pexels"
                     item.url = video["link"]
                     item.duration = duration
+                    item.title = _pexels_title(v)
+                    item.search_term = search_term
                     video_items.append(item)
                     break
         return video_items
@@ -156,6 +214,8 @@ def search_videos_pixabay(
                     item.provider = "pixabay"
                     item.url = video["url"]
                     item.duration = duration
+                    item.title = _pixabay_title(v)
+                    item.search_term = search_term
                     video_items.append(item)
                     break
         return video_items
@@ -233,6 +293,8 @@ def search_videos_coverr(
             item.provider = "coverr"
             item.url = mp4_download_url
             item.duration = duration
+            item.title = _coverr_title(v)
+            item.search_term = search_term
             video_items.append(item)
         return video_items
     except Exception as e:
@@ -346,6 +408,8 @@ def download_videos(
         logger.info(f"found {len(video_items)} videos for '{search_term}'")
 
         for item in video_items:
+            if not is_stock_candidate_related(search_term, item):
+                continue
             if item.url not in valid_video_urls:
                 valid_video_items.append(item)
                 valid_video_urls.append(item.url)
@@ -416,6 +480,8 @@ def _download_videos_by_script_order(
 
         term_items = []
         for item in video_items:
+            if not is_stock_candidate_related(search_term, item):
+                continue
             if item.url in valid_video_urls:
                 continue
             term_items.append(item)
