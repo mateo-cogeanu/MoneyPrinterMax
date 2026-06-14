@@ -1,5 +1,6 @@
 import base64
 import html
+import importlib
 import json
 import os
 import sys
@@ -30,6 +31,8 @@ from app.services import full_auto, llm, voice
 from app.services import task as tm
 from app.services import youtube_upload
 from app.utils import utils
+
+full_auto = importlib.reload(full_auto)
 
 st.set_page_config(
     page_title="MoneyPrinterMax",
