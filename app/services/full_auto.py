@@ -11,7 +11,7 @@ TARGET_DURATION_WORD_RANGES = {
 }
 TOPIC_LINK_SEPARATOR = " | "
 YOUTUBE_URL_RE = re.compile(
-    r"https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/)[^\s|]+",
+    r"https?://(?:www\.)?(?:youtube\.com/(?:watch\?v=|shorts/)|youtu\.be/)[^\s|]+",
     re.IGNORECASE,
 )
 

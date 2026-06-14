@@ -16,6 +16,7 @@ class TestFullAuto(unittest.TestCase):
             "First topic | https://www.youtube.com/watch?v=abc\n"
             "Second topic\n"
             "Third topic https://youtu.be/xyz\n"
+            "Fourth topic https://www.youtube.com/shorts/csL1ou5ueic\n"
         )
 
         self.assertEqual(entries, [{"line_number": 2, "topic": "Second topic"}])
