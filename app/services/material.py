@@ -18,6 +18,7 @@ from app.utils import utils
 _api_key_counter = 0
 _api_key_lock = threading.Lock()
 _stock_relevance_cache = {}
+_MAX_STOCK_LLM_CHECKS_PER_TERM = 3
 
 
 def _clean_stock_text(value) -> str:
@@ -71,6 +72,47 @@ def is_stock_candidate_related(search_term: str, item: MaterialInfo) -> bool:
             f"reject unrelated stock video: search='{search_term}', title='{item.title}'"
         )
     return related
+
+
+def rank_stock_candidates(search_term: str, items: List[MaterialInfo]) -> List[MaterialInfo]:
+    """
+    Rank stock candidates quickly and keep usable fallback visuals.
+
+    The LLM is only used for a few ambiguous candidates. Strong local matches are
+    accepted immediately, obvious mismatches are skipped, and broad but safe
+    fallback footage stays available so a term never collapses to zero results.
+    """
+    ranked_items = []
+    fallback_items = []
+    llm_checks = 0
+
+    for index, item in enumerate(items):
+        score = llm.stock_candidate_relevance_score(search_term, item.title)
+        if not item.title:
+            score = 50
+
+        if score >= 45:
+            ranked_items.append((score, index, item))
+            continue
+
+        if score >= 35 and llm_checks < _MAX_STOCK_LLM_CHECKS_PER_TERM:
+            llm_checks += 1
+            if is_stock_candidate_related(search_term, item):
+                ranked_items.append((70, index, item))
+                continue
+
+        if score > 0:
+            fallback_items.append((score, index, item))
+        else:
+            logger.info(
+                f"skip obvious stock mismatch: search='{search_term}', title='{item.title}'"
+            )
+
+    ranked_items.sort(key=lambda candidate: (-candidate[0], candidate[1]))
+    fallback_items.sort(key=lambda candidate: (-candidate[0], candidate[1]))
+    ordered_items = [item for _, _, item in ranked_items]
+    ordered_items.extend(item for _, _, item in fallback_items)
+    return ordered_items
 
 
 def _get_tls_verify() -> bool:
@@ -407,13 +449,17 @@ def download_videos(
         )
         logger.info(f"found {len(video_items)} videos for '{search_term}'")
 
-        for item in video_items:
-            if not is_stock_candidate_related(search_term, item):
-                continue
+        for item in rank_stock_candidates(search_term, video_items):
             if item.url not in valid_video_urls:
                 valid_video_items.append(item)
                 valid_video_urls.append(item.url)
                 found_duration += item.duration
+                if found_duration > audio_duration + (max_clip_duration * 2):
+                    break
+
+        if found_duration > audio_duration + (max_clip_duration * 2):
+            logger.info("found enough stock video candidates, skip searching more terms")
+            break
 
     logger.info(
         f"found total videos: {len(valid_video_items)}, required duration: {audio_duration} seconds, found duration: {found_duration} seconds"
@@ -479,14 +525,14 @@ def _download_videos_by_script_order(
         logger.info(f"found {len(video_items)} videos for '{search_term}'")
 
         term_items = []
-        for item in video_items:
-            if not is_stock_candidate_related(search_term, item):
-                continue
+        for item in rank_stock_candidates(search_term, video_items):
             if item.url in valid_video_urls:
                 continue
             term_items.append(item)
             valid_video_urls.add(item.url)
             found_duration += item.duration
+            if found_duration > audio_duration + (max_clip_duration * 2):
+                break
 
         if term_items:
             candidate_groups.append((search_term, term_items))

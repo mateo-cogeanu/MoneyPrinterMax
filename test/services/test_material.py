@@ -232,6 +232,69 @@ class TestMaterialTlsVerification(unittest.TestCase):
         self.assertEqual(downloaded_urls, ["https://v.example/docker.mp4"])
         self.assertEqual(result, ["/tmp/docker.mp4"])
 
+    def test_download_videos_uses_related_fallback_when_exact_stock_is_missing(self):
+        search_results = {
+            "docker containers": [
+                material.MaterialInfo(
+                    provider="pexels",
+                    url="https://v.example/laser.mp4",
+                    duration=3,
+                    title="laser light show",
+                ),
+                material.MaterialInfo(
+                    provider="pexels",
+                    url="https://v.example/computer.mp4",
+                    duration=3,
+                    title="man pressing buttons on computer",
+                ),
+            ],
+        }
+        downloaded_urls = []
+
+        def fake_search(search_term, minimum_duration, video_aspect):
+            return search_results[search_term]
+
+        def fake_save_video(video_url, save_dir=""):
+            downloaded_urls.append(video_url)
+            return f"/tmp/{video_url.rsplit('/', 1)[-1]}"
+
+        with (
+            patch.dict(config.app, {"material_directory": ""}),
+            patch.object(material, "search_videos_pexels", side_effect=fake_search),
+            patch.object(material, "save_video", side_effect=fake_save_video),
+        ):
+            result = material.download_videos(
+                task_id="fallback-materials",
+                search_terms=["docker containers"],
+                source="pexels",
+                audio_duration=2,
+                max_clip_duration=3,
+            )
+
+        self.assertEqual(downloaded_urls, ["https://v.example/computer.mp4"])
+        self.assertEqual(result, ["/tmp/computer.mp4"])
+
+    def test_rank_stock_candidates_limits_llm_checks_for_ambiguous_items(self):
+        items = [
+            material.MaterialInfo(
+                provider="pexels",
+                url=f"https://v.example/person-{index}.mp4",
+                duration=3,
+                title=f"person working at desk {index}",
+            )
+            for index in range(6)
+        ]
+
+        with patch.object(
+            material,
+            "is_stock_candidate_related",
+            return_value=False,
+        ) as validate:
+            ranked = material.rank_stock_candidates("docker containers", items)
+
+        self.assertEqual(validate.call_count, 3)
+        self.assertEqual(len(ranked), 6)
+
 
 class TestCoverrProvider(unittest.TestCase):
     """

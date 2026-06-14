@@ -823,13 +823,18 @@ def improve_stock_search_terms(
 
 
 def _stock_relevance_fallback(search_term: str, candidate_title: str) -> bool:
+    return stock_candidate_relevance_score(search_term, candidate_title) >= 35
+
+
+def stock_candidate_relevance_score(search_term: str, candidate_title: str) -> int:
     search_tokens = set(_search_term_tokens(search_term))
     title_tokens = set(_search_term_tokens(candidate_title))
     if not search_tokens or not title_tokens:
-        return True
+        return 50
 
     if search_tokens.intersection(title_tokens):
-        return True
+        overlap = len(search_tokens.intersection(title_tokens))
+        return min(95, 55 + (overlap * 15))
 
     blocked_visuals = {
         "beach",
@@ -845,9 +850,72 @@ def _stock_relevance_fallback(search_term: str, candidate_title: str) -> bool:
         "waves",
     }
     if title_tokens.intersection(blocked_visuals):
-        return False
+        return 0
 
-    return False
+    tech_subject_tokens = {
+        "ai",
+        "api",
+        "app",
+        "apps",
+        "automation",
+        "cloud",
+        "code",
+        "coding",
+        "computer",
+        "container",
+        "containers",
+        "data",
+        "developer",
+        "docker",
+        "javascript",
+        "programming",
+        "python",
+        "server",
+        "software",
+        "tech",
+        "technology",
+        "website",
+    }
+    tech_visual_tokens = {
+        "button",
+        "buttons",
+        "code",
+        "coding",
+        "computer",
+        "dashboard",
+        "developer",
+        "keyboard",
+        "laptop",
+        "monitor",
+        "office",
+        "programmer",
+        "screen",
+        "server",
+        "typing",
+        "workstation",
+    }
+    if search_tokens.intersection(tech_subject_tokens) and title_tokens.intersection(
+        tech_visual_tokens
+    ):
+        return 45
+
+    generic_human_tokens = {
+        "business",
+        "desk",
+        "hands",
+        "home",
+        "man",
+        "office",
+        "people",
+        "person",
+        "woman",
+        "work",
+        "working",
+    }
+    if title_tokens.intersection(generic_human_tokens):
+        return 35
+
+    return 10
 
 
 def validate_stock_video_candidate(search_term: str, candidate_title: str) -> bool:

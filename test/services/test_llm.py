@@ -192,6 +192,11 @@ class TestScriptPromptOptions(unittest.TestCase):
         self.assertTrue(
             llm._stock_relevance_fallback("docker apps", "docker containers dashboard")
         )
+        self.assertTrue(
+            llm._stock_relevance_fallback(
+                "docker containers", "man pressing buttons on computer"
+            )
+        )
 
     def test_validate_stock_video_candidate_uses_llm_json(self):
         with patch.object(
