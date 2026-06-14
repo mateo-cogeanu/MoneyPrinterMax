@@ -1,0 +1,35 @@
+from datetime import datetime, timedelta
+
+
+def parse_topics(raw_topics: str) -> list[str]:
+    topics = []
+    seen = set()
+    for line in (raw_topics or "").splitlines():
+        topic = line.strip()
+        if not topic or topic in seen:
+            continue
+        topics.append(topic)
+        seen.add(topic)
+    return topics
+
+
+def build_schedule(topics: list[str], start_date, publish_times):
+    clean_times = sorted({t.replace(second=0, microsecond=0) for t in publish_times})
+    schedule = []
+    if not clean_times:
+        return schedule
+
+    for index, topic in enumerate(topics):
+        day_offset = index // len(clean_times)
+        slot_time = clean_times[index % len(clean_times)]
+        publish_date = start_date + timedelta(days=day_offset)
+        publish_at = datetime.combine(publish_date, slot_time).astimezone()
+        schedule.append(
+            {
+                "number": index + 1,
+                "topic": topic,
+                "publish_at": publish_at,
+                "publish_label": publish_at.strftime("%Y-%m-%d %H:%M"),
+            }
+        )
+    return schedule

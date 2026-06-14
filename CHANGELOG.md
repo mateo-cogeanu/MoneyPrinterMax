@@ -4,6 +4,18 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 
 ## 2026-06-14
 
+### WebUI: Full Auto Mode
+
+- Added a new `Full Auto` app mode for hands-off topic batching.
+- Users can enter one video topic per line and choose two daily upload times.
+- The app calculates the full publishing date range from the topic count, start date, and daily upload slots.
+- Added a schedule preview table showing each topic and its planned publish time.
+- Full Auto generates the script, keywords, YouTube title, and YouTube description for each topic.
+- Full Auto generates each video sequentially, then schedules it on YouTube through the existing OAuth upload service.
+- Added shared subtitle controls so the selected subtitle style is reused for every video in the batch.
+- Added shared music controls, including random music, no music, existing custom music, or uploading a new custom MP3 for the whole batch.
+- Added focused unit tests for topic parsing and schedule generation.
+
 ### WebUI: YouTube Automation Fixes
 
 - Removed the runtime dependency on `google-auth-oauthlib` from the YouTube connect flow.

@@ -25,7 +25,7 @@ from app.models.schema import (
     VideoParams,
     VideoTransitionMode,
 )
-from app.services import llm, voice
+from app.services import full_auto, llm, voice
 from app.services import task as tm
 from app.services import youtube_upload
 from app.utils import utils
@@ -409,6 +409,427 @@ def render_youtube_automation_mode():
             st.error(f"{tr('YouTube Upload Failed')}: {exc}")
 
 
+def render_youtube_auth_controls(client_secret_key: str = "youtube_client_secret_file"):
+    default_client_secret_file = youtube_upload.find_default_client_secret_file()
+    saved_client_secret_file = config.app.get(client_secret_key, default_client_secret_file)
+    client_secret_file = st.text_input(
+        tr("YouTube OAuth Client JSON"),
+        value=saved_client_secret_file,
+        help=tr("YouTube OAuth Client JSON Help"),
+        key=f"{client_secret_key}_input",
+    ).strip()
+    config.app[client_secret_key] = client_secret_file
+
+    with st.expander(tr("YouTube OAuth Troubleshooting")):
+        st.markdown(tr("YouTube OAuth Troubleshooting Help"))
+
+    auth_cols = st.columns([1, 1, 2])
+    with auth_cols[0]:
+        if st.button(
+            tr("Connect YouTube"),
+            use_container_width=True,
+            key=f"{client_secret_key}_connect",
+        ):
+            try:
+                youtube_upload.get_authenticated_service(
+                    client_secret_file=client_secret_file,
+                    force_reauth=True,
+                )
+                st.success(tr("YouTube Connected"))
+            except Exception as exc:
+                st.error(f"{tr('YouTube Connection Failed')}: {exc}")
+    with auth_cols[1]:
+        if st.button(
+            tr("Forget YouTube Login"),
+            use_container_width=True,
+            key=f"{client_secret_key}_forget",
+        ):
+            youtube_upload.revoke_saved_token()
+            st.success(tr("YouTube Login Removed"))
+    with auth_cols[2]:
+        if youtube_upload.token_exists():
+            st.info(tr("YouTube Token Ready"))
+        else:
+            st.warning(tr("YouTube Token Missing"))
+
+    return client_secret_file
+
+
+def render_full_auto_mode():
+    st.subheader(tr("Full Auto Mode"))
+    st.caption(tr("Full Auto Help"))
+
+    client_secret_file = render_youtube_auth_controls("youtube_client_secret_file")
+
+    schedule_col, topic_col = st.columns([0.85, 1.15])
+    with schedule_col:
+        st.write(tr("Publishing Schedule"))
+        start_date = st.date_input(
+            tr("Start Date"),
+            value=(datetime.now().astimezone() + timedelta(days=1)).date(),
+            key="full_auto_start_date",
+        )
+        time_cols = st.columns(2)
+        with time_cols[0]:
+            first_publish_time = st.time_input(
+                tr("Upload Time 1"),
+                value=datetime.strptime("08:00", "%H:%M").time(),
+                key="full_auto_upload_time_1",
+            )
+        with time_cols[1]:
+            second_publish_time = st.time_input(
+                tr("Upload Time 2"),
+                value=datetime.strptime("20:00", "%H:%M").time(),
+                key="full_auto_upload_time_2",
+            )
+        made_for_kids = st.checkbox(
+            tr("Made For Kids"), value=False, key="full_auto_made_for_kids"
+        )
+
+    with topic_col:
+        raw_topics = st.text_area(
+            tr("Video Topics"),
+            height=210,
+            placeholder=tr("Video Topics Placeholder"),
+            key="full_auto_topics",
+        )
+        topics = full_auto.parse_topics(raw_topics)
+        schedule = full_auto.build_schedule(
+            topics, start_date, [first_publish_time, second_publish_time]
+        )
+        if schedule:
+            st.info(
+                tr("Full Auto Schedule Summary").format(
+                    count=len(topics),
+                    per_day=len({first_publish_time, second_publish_time}),
+                    start=schedule[0]["publish_label"],
+                    end=schedule[-1]["publish_label"],
+                )
+            )
+            st.dataframe(
+                [
+                    {
+                        tr("Video #"): item["number"],
+                        tr("Topic"): item["topic"],
+                        tr("Publish At"): item["publish_label"],
+                    }
+                    for item in schedule
+                ],
+                hide_index=True,
+                use_container_width=True,
+            )
+
+    settings_cols = st.columns(3)
+    auto_params = VideoParams(video_subject="")
+
+    with settings_cols[0]:
+        st.write(tr("AI Video Settings"))
+        video_languages = [(tr("Auto Detect"), "")]
+        for code in support_locales:
+            video_languages.append((code, code))
+        selected_language_index = st.selectbox(
+            tr("Script Language"),
+            options=range(len(video_languages)),
+            format_func=lambda index: video_languages[index][0],
+            key="full_auto_script_language",
+        )
+        auto_params.video_language = video_languages[selected_language_index][1]
+        auto_params.paragraph_number = st.slider(
+            tr("Script Paragraph Number"),
+            min_value=llm.MIN_SCRIPT_PARAGRAPH_NUMBER,
+            max_value=llm.MAX_SCRIPT_PARAGRAPH_NUMBER,
+            value=st.session_state.get("paragraph_number_input", 1),
+            key="full_auto_paragraph_number",
+        )
+        auto_params.video_script_prompt = st.text_area(
+            tr("Custom Script Requirements"),
+            height=100,
+            max_chars=llm.MAX_SCRIPT_PROMPT_LENGTH,
+            key="full_auto_script_prompt",
+        ).strip()
+
+        video_sources = [
+            (tr("Pexels"), "pexels"),
+            (tr("Pixabay"), "pixabay"),
+            (tr("Coverr"), "coverr"),
+        ]
+        selected_source_index = st.selectbox(
+            tr("Video Source"),
+            options=range(len(video_sources)),
+            format_func=lambda index: video_sources[index][0],
+            key="full_auto_video_source",
+        )
+        auto_params.video_source = video_sources[selected_source_index][1]
+        auto_params.video_concat_mode = VideoConcatMode.random
+        auto_params.video_transition_mode = VideoTransitionMode.none
+        auto_params.video_clip_duration = st.selectbox(
+            tr("Clip Duration"),
+            options=[2, 3, 4, 5, 6, 7, 8, 9, 10],
+            index=1,
+            key="full_auto_clip_duration",
+        )
+        auto_params.video_count = 1
+        auto_params.match_materials_to_script = st.checkbox(
+            tr("Match Materials to Script Order"),
+            value=bool(st.session_state.get("match_materials_to_script", False)),
+            key="full_auto_match_materials",
+        )
+
+    with settings_cols[1]:
+        st.write(tr("Music and Voice"))
+        saved_voice_name = config.ui.get("voice_name", voice.NO_VOICE_NAME)
+        available_voices = [voice.NO_VOICE_NAME] + voice.get_all_azure_voices(
+            filter_locals=None
+        )
+        if saved_voice_name not in available_voices:
+            saved_voice_name = available_voices[0]
+        auto_params.voice_name = st.selectbox(
+            tr("Speech Synthesis"),
+            options=available_voices,
+            index=available_voices.index(saved_voice_name),
+            format_func=lambda value: tr("No Voice") if value == voice.NO_VOICE_NAME else value,
+            key="full_auto_voice_name",
+        )
+        auto_params.voice_volume = st.selectbox(
+            tr("Speech Volume"),
+            options=[0.6, 0.8, 1.0, 1.2, 1.5, 2.0, 3.0, 4.0, 5.0],
+            index=2,
+            key="full_auto_voice_volume",
+        )
+        auto_params.voice_rate = st.selectbox(
+            tr("Speech Rate"),
+            options=[0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.5, 1.8, 2.0],
+            index=2,
+            key="full_auto_voice_rate",
+        )
+
+        bgm_options = [
+            (tr("No Background Music"), ""),
+            (tr("Random Background Music"), "random"),
+            (tr("Custom Background Music"), "custom"),
+        ]
+        selected_bgm_index = st.selectbox(
+            tr("Background Music"),
+            options=range(len(bgm_options)),
+            index=1,
+            format_func=lambda index: bgm_options[index][0],
+            key="full_auto_bgm_type",
+        )
+        auto_params.bgm_type = bgm_options[selected_bgm_index][1]
+        uploaded_bgm_file = None
+        selected_bgm_file = ""
+        if auto_params.bgm_type == "custom":
+            song_options = get_all_songs()
+            selected_bgm_file = st.selectbox(
+                tr("Existing Background Music"),
+                options=[""] + song_options,
+                format_func=lambda value: value or tr("Upload New Background Music"),
+                key="full_auto_existing_bgm",
+            )
+            uploaded_bgm_file = st.file_uploader(
+                tr("Custom Background Music File"),
+                type=["mp3", "MP3"],
+                accept_multiple_files=False,
+                key="full_auto_custom_bgm_file",
+            )
+            if uploaded_bgm_file:
+                st.audio(uploaded_bgm_file, format="audio/mp3")
+        auto_params.bgm_volume = st.selectbox(
+            tr("Background Music Volume"),
+            options=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+            index=2,
+            key="full_auto_bgm_volume",
+        )
+
+    with settings_cols[2]:
+        st.write(tr("Subtitle Settings"))
+        auto_params.subtitle_enabled = st.checkbox(
+            tr("Enable Subtitles"), value=True, key="full_auto_subtitles_enabled"
+        )
+        font_names = get_all_fonts()
+        saved_font_name = config.ui.get("font_name", "Roboto.ttf")
+        if saved_font_name not in font_names:
+            saved_font_name = "Roboto.ttf" if "Roboto.ttf" in font_names else font_names[0]
+        auto_params.font_name = st.selectbox(
+            tr("Font"),
+            font_names,
+            index=font_names.index(saved_font_name),
+            key="full_auto_font_name",
+        )
+        render_font_preview(auto_params.font_name)
+        subtitle_positions = [
+            (tr("Top"), "top"),
+            (tr("Center"), "center"),
+            (tr("Bottom"), "bottom"),
+            (tr("Custom"), "custom"),
+        ]
+        selected_position_index = st.selectbox(
+            tr("Position"),
+            options=range(len(subtitle_positions)),
+            index=2,
+            format_func=lambda index: subtitle_positions[index][0],
+            key="full_auto_subtitle_position",
+        )
+        auto_params.subtitle_position = subtitle_positions[selected_position_index][1]
+        if auto_params.subtitle_position == "custom":
+            auto_params.custom_position = st.slider(
+                tr("Custom Position (% from top)"),
+                0.0,
+                100.0,
+                float(config.ui.get("custom_position", 70.0)),
+                key="full_auto_custom_position",
+            )
+        auto_params.text_fore_color = st.color_picker(
+            tr("Font Color"),
+            config.ui.get("text_fore_color", "#FFFFFF"),
+            key="full_auto_text_color",
+        )
+        auto_params.font_size = st.slider(
+            tr("Font Size"),
+            30,
+            100,
+            int(config.ui.get("font_size", 60)),
+            key="full_auto_font_size",
+        )
+        auto_params.stroke_color = st.color_picker(
+            tr("Stroke Color"), "#000000", key="full_auto_stroke_color"
+        )
+        auto_params.stroke_width = st.slider(
+            tr("Stroke Width"), 0.0, 10.0, 1.5, key="full_auto_stroke_width"
+        )
+        subtitle_background_enabled = st.checkbox(
+            tr("Enable Subtitle Background"),
+            value=config.ui.get("subtitle_background_enabled", True),
+            key="full_auto_subtitle_background_enabled",
+        )
+        if subtitle_background_enabled:
+            auto_params.text_background_color = st.color_picker(
+                tr("Subtitle Background Color"),
+                config.ui.get("subtitle_background_color", "#000000"),
+                key="full_auto_subtitle_background_color",
+            )
+            auto_params.rounded_subtitle_background = st.checkbox(
+                tr("Rounded Subtitle Background"),
+                value=config.ui.get("rounded_subtitle_background", False),
+                help=tr("Rounded Subtitle Background Help"),
+                key="full_auto_rounded_subtitle_background",
+            )
+        else:
+            auto_params.text_background_color = False
+            auto_params.rounded_subtitle_background = False
+
+    if st.button(tr("Start Full Auto"), type="primary", use_container_width=True):
+        if not topics:
+            st.error(tr("Please Enter Video Topics"))
+            st.stop()
+        if first_publish_time == second_publish_time:
+            st.error(tr("Upload Times Must Be Different"))
+            st.stop()
+        if not youtube_upload.token_exists():
+            st.error(tr("YouTube Token Missing"))
+            st.stop()
+        if auto_params.video_source == "pexels" and not config.app.get("pexels_api_keys", ""):
+            st.error(tr("Please Enter the Pexels API Key"))
+            st.stop()
+        if auto_params.video_source == "pixabay" and not config.app.get("pixabay_api_keys", ""):
+            st.error(tr("Please Enter the Pixabay API Key"))
+            st.stop()
+        if auto_params.video_source == "coverr" and not config.app.get("coverr_api_keys", ""):
+            st.error(tr("Please Enter the Coverr API Key"))
+            st.stop()
+        if schedule[0]["publish_at"] <= datetime.now().astimezone() + timedelta(minutes=15):
+            st.error(tr("Publish Time Must Be Future"))
+            st.stop()
+
+        batch_id = str(uuid4())
+        if uploaded_bgm_file:
+            _, bgm_ext = os.path.splitext(os.path.basename(uploaded_bgm_file.name))
+            bgm_ext = bgm_ext.lower() or ".mp3"
+            bgm_filename = f"full-auto-bgm-{batch_id}{bgm_ext}"
+            with open(os.path.join(utils.song_dir(), bgm_filename), "wb") as f:
+                f.write(uploaded_bgm_file.getbuffer())
+            auto_params.bgm_file = bgm_filename
+        elif selected_bgm_file:
+            auto_params.bgm_file = selected_bgm_file
+
+        progress = st.progress(0, text=tr("Starting Full Auto"))
+        results = []
+        total_steps = len(schedule)
+        for index, item in enumerate(schedule):
+            topic = item["topic"]
+            progress.progress(
+                int(index / total_steps * 100),
+                text=tr("Full Auto Working On").format(
+                    current=index + 1, total=total_steps, topic=topic
+                ),
+            )
+
+            script = llm.generate_script(
+                video_subject=topic,
+                language=auto_params.video_language,
+                paragraph_number=auto_params.paragraph_number,
+                video_script_prompt=auto_params.video_script_prompt,
+                custom_system_prompt="",
+            )
+            if not script or "Error: " in script:
+                st.error(f"{tr('Video Script Generation Failed')}: {topic}")
+                st.stop()
+
+            terms = llm.generate_terms(
+                topic,
+                script,
+                amount=8 if auto_params.match_materials_to_script else 5,
+                match_script_order=auto_params.match_materials_to_script,
+            )
+            if not terms or "Error: " in terms:
+                st.error(f"{tr('Video Keywords Generation Failed')}: {topic}")
+                st.stop()
+
+            metadata = llm.generate_social_metadata(
+                video_subject=topic,
+                video_script=script,
+                language=auto_params.video_language or llm.DEFAULT_SOCIAL_LANGUAGE,
+                platform=llm.DEFAULT_SOCIAL_PLATFORM,
+            )
+            description_parts = [metadata.get("caption", "")]
+            hashtags = metadata.get("hashtags", [])
+            if hashtags:
+                description_parts.append(" ".join(hashtags))
+
+            task_params = VideoParams(**auto_params.model_dump())
+            task_params.video_subject = topic
+            task_params.video_script = script
+            task_params.video_terms = terms
+            task_id = str(uuid4())
+            result = tm.start(task_id=task_id, params=task_params)
+            video_files = result.get("videos", []) if result else []
+            if not video_files:
+                st.error(f"{tr('Video Generation Failed')}: {topic}")
+                st.stop()
+
+            upload_result = youtube_upload.upload_video(
+                video_path=video_files[0],
+                title=metadata.get("title") or topic,
+                description="\n\n".join(part for part in description_parts if part),
+                tags=hashtags,
+                privacy_status="private",
+                publish_at=item["publish_at"],
+                client_secret_file=client_secret_file,
+                made_for_kids=made_for_kids,
+            )
+            results.append(
+                {
+                    tr("Topic"): topic,
+                    tr("Publish At"): item["publish_label"],
+                    tr("YouTube URL"): upload_result.get("url", ""),
+                }
+            )
+
+        progress.progress(100, text=tr("Full Auto Complete"))
+        st.success(tr("Full Auto Complete"))
+        st.dataframe(results, hide_index=True, use_container_width=True)
+
+
 def init_log():
     logger.remove()
     _lvl = "DEBUG"
@@ -459,6 +880,7 @@ def tr(key):
 mode_options = [
     (tr("Create Video Mode"), "create"),
     (tr("YouTube Automation Mode"), "youtube"),
+    (tr("Full Auto Mode"), "full_auto"),
 ]
 selected_mode_index = st.radio(
     tr("App Mode"),
@@ -469,6 +891,10 @@ selected_mode_index = st.radio(
 )
 if mode_options[selected_mode_index][1] == "youtube":
     render_youtube_automation_mode()
+    config.save_config()
+    st.stop()
+if mode_options[selected_mode_index][1] == "full_auto":
+    render_full_auto_mode()
     config.save_config()
     st.stop()
 
