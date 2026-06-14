@@ -135,9 +135,52 @@ class TestScriptPromptOptions(unittest.TestCase):
                 match_script_order=True,
             )
 
-        self.assertEqual(result, ["opening city", "middle office", "final sunset"])
+        self.assertEqual(
+            result,
+            [
+                "startup story opening city",
+                "startup story middle office",
+                "startup story final sunset",
+            ],
+        )
         self.assertIn("chronological stock-video search terms", captured["prompt"])
         self.assertIn("same order as the script narration", captured["prompt"])
+
+    def test_improve_stock_search_terms_keeps_multi_word_subject_anchor(self):
+        terms = llm.improve_stock_search_terms(
+            video_subject="baking soda",
+            search_terms=["soda bottle", "cleaning kitchen", "coca cola"],
+        )
+
+        self.assertEqual(
+            terms,
+            [
+                "baking soda",
+                "baking soda bottle",
+                "baking soda cleaning kitchen",
+            ],
+        )
+
+    def test_generate_terms_postprocesses_unrelated_stock_terms(self):
+        with patch.object(
+            llm,
+            "_generate_response",
+            return_value='["soda bottle", "coca cola", "cleaning kitchen"]',
+        ):
+            terms = llm.generate_terms(
+                video_subject="baking soda",
+                video_script="Baking soda can clean sinks and remove odors.",
+                amount=3,
+            )
+
+        self.assertEqual(
+            terms,
+            [
+                "baking soda",
+                "baking soda bottle",
+                "baking soda cleaning kitchen",
+            ],
+        )
 
     def test_video_script_request_rejects_invalid_advanced_options(self):
         """

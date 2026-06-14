@@ -35,6 +35,12 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 - The Shorts structure rules are appended even when a custom system prompt is used.
 - Added prompt tests to prevent hook-only scripts from returning.
 
+### AI: Stock Material Relevance
+
+- Strengthened stock-video search term generation so terms must be concrete visible phrases tied to the main subject.
+- Added a search-term post-processor that keeps the full subject anchor attached to stock searches, reducing broad mismatches like `baking soda` drifting into soda drink clips.
+- Added tests for subject anchoring and unrelated brand/drink term cleanup.
+
 ### WebUI: YouTube Automation Fixes
 
 - Removed the runtime dependency on `google-auth-oauthlib` from the YouTube connect flow.

@@ -19,6 +19,39 @@ MAX_SCRIPT_PROMPT_LENGTH = 2000
 MAX_SCRIPT_SYSTEM_PROMPT_LENGTH = 8000
 _THINK_BLOCK_RE = re.compile(r"<think\b[^>]*>.*?</think>", re.IGNORECASE | re.DOTALL)
 _UNCLOSED_THINK_BLOCK_RE = re.compile(r"<think\b[^>]*>.*$", re.IGNORECASE | re.DOTALL)
+_SEARCH_TERM_STOPWORDS = {
+    "a",
+    "about",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "by",
+    "for",
+    "from",
+    "how",
+    "in",
+    "into",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "the",
+    "to",
+    "video",
+    "why",
+    "with",
+    "you",
+    "your",
+}
+_UNRELATED_STOCK_TOKENS = {
+    "coca",
+    "cola",
+    "coke",
+    "pepsi",
+}
 
 DEFAULT_SCRIPT_SYSTEM_PROMPT = """
 # Role: Video Script Generator
@@ -730,6 +763,65 @@ def _strip_code_fence(text: str) -> str:
     return t.strip()
 
 
+def _search_term_tokens(text: str) -> list[str]:
+    tokens = re.findall(r"[a-zA-Z0-9]+", (text or "").lower())
+    return [token for token in tokens if token not in _SEARCH_TERM_STOPWORDS]
+
+
+def _subject_anchor(video_subject: str) -> str:
+    tokens = _search_term_tokens(video_subject)
+    return " ".join(tokens[:3])
+
+
+def improve_stock_search_terms(
+    video_subject: str, search_terms: List[str], match_script_order: bool = False
+) -> List[str]:
+    subject_anchor = _subject_anchor(video_subject)
+    subject_tokens = set(_search_term_tokens(subject_anchor))
+    improved_terms = []
+    seen_terms = set()
+    if not match_script_order and subject_anchor:
+        improved_terms.append(subject_anchor)
+        seen_terms.add(subject_anchor)
+
+    for raw_term in search_terms or []:
+        term = re.sub(r"\s+", " ", str(raw_term or "").strip().lower())
+        if not term:
+            continue
+
+        term_words = [
+            token
+            for token in _search_term_tokens(term)
+            if token not in _UNRELATED_STOCK_TOKENS or token in subject_tokens
+        ]
+        term_tokens = set(term_words)
+        if (
+            subject_anchor
+            and subject_tokens
+            and not subject_tokens.issubset(term_tokens)
+        ):
+            term = f"{subject_anchor} {term}"
+
+        deduped_words = []
+        for token in _search_term_tokens(term):
+            if token in _UNRELATED_STOCK_TOKENS and token not in subject_tokens:
+                continue
+            if token not in deduped_words:
+                deduped_words.append(token)
+
+        term = " ".join(deduped_words[:5])
+        if not term or term in seen_terms:
+            continue
+
+        improved_terms.append(term)
+        seen_terms.add(term)
+
+    if not improved_terms and subject_anchor:
+        improved_terms.append(subject_anchor)
+
+    return improved_terms
+
+
 def generate_terms(
     video_subject: str,
     video_script: str,
@@ -742,7 +834,7 @@ def generate_terms(
             "the order of topics in the video script."
         )
         ordering_rule = (
-            "6. keep the terms in the same order as the script narration; "
+            "8. keep the terms in the same order as the script narration; "
             "earlier terms must describe earlier visual moments."
         )
         # 有序关键词模式下，示例数量要和 amount 保持一致，避免模型被固定
@@ -775,10 +867,12 @@ def generate_terms(
 
 ## Constrains:
 1. the search terms are to be returned as a json-array of strings.
-2. each search term should consist of 1-3 words, always add the main subject of the video.
+2. each search term should be a concrete stock-video visual phrase with a visible object, person, place, or action.
 3. you must only return the json-array of strings. you must not return anything else. you must not return the script.
 4. the search terms must be related to the subject of the video.
 5. reply with english search terms only.
+6. include the main subject or a direct visual synonym in every search term.
+7. avoid generic teaser words, abstract concepts, brands, logos, unrelated drinks, and unrelated products unless they are explicitly in the subject or script.
 {ordering_rule}
 
 ## Output Example:
@@ -831,6 +925,11 @@ Please note that you must use English for generating video search terms; Chinese
         if i < _max_retries:
             logger.warning(f"failed to generate video terms, trying again... {i + 1}")
 
+    search_terms = improve_stock_search_terms(
+        video_subject=video_subject,
+        search_terms=search_terms,
+        match_script_order=match_script_order,
+    )
     logger.success(f"completed: \n{search_terms}")
     return search_terms
 
