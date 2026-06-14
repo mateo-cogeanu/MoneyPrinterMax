@@ -577,6 +577,7 @@ def render_full_auto_mode():
     st.caption(tr("Full Auto Help"))
 
     client_secret_file = render_youtube_auth_controls("youtube_client_secret_file")
+    topics_file = full_auto.ensure_topics_file(os.path.join(root_dir, "topics.txt"))
 
     schedule_col, topic_col = st.columns([0.85, 1.15])
     with schedule_col:
@@ -626,13 +627,15 @@ def render_full_auto_mode():
         )
 
     with topic_col:
-        raw_topics = st.text_area(
-            tr("Video Topics"),
-            height=210,
-            placeholder=tr("Video Topics Placeholder"),
-            key="full_auto_topics",
+        st.write(tr("Topics File"))
+        st.code(os.path.relpath(topics_file, root_dir))
+        topic_entries = full_auto.read_pending_topic_entries(topics_file)
+        topics = [entry["topic"] for entry in topic_entries]
+        st.caption(
+            tr("Topics File Help").format(
+                path=os.path.relpath(topics_file, root_dir)
+            )
         )
-        topics = full_auto.parse_topics(raw_topics)
         schedule = full_auto.build_schedule(
             topics, start_date, upload_times
         )
@@ -940,6 +943,7 @@ def render_full_auto_mode():
         total_steps = len(schedule)
         for index, item in enumerate(schedule):
             topic = item["topic"]
+            topic_entry = topic_entries[index]
             progress.progress(
                 int(index / total_steps * 100),
                 text=tr("Full Auto Working On").format(
@@ -1012,11 +1016,18 @@ def render_full_auto_mode():
                 client_secret_file=client_secret_file,
                 made_for_kids=made_for_kids,
             )
+            video_url = upload_result.get("url", "")
+            if video_url:
+                full_auto.mark_topic_completed(
+                    topics_file,
+                    topic_entry["line_number"],
+                    video_url,
+                )
             results.append(
                 {
                     tr("Topic"): topic,
                     tr("Publish At"): item["publish_label"],
-                    tr("YouTube URL"): upload_result.get("url", ""),
+                    tr("YouTube URL"): video_url,
                 }
             )
 

@@ -1,4 +1,5 @@
 from datetime import date, time
+import tempfile
 import unittest
 
 from app.services import full_auto
@@ -9,6 +10,36 @@ class TestFullAuto(unittest.TestCase):
         topics = full_auto.parse_topics("First\n\nSecond\nFirst\n  Third  ")
 
         self.assertEqual(topics, ["First", "Second", "Third"])
+
+    def test_parse_pending_topic_entries_skips_completed_links(self):
+        entries = full_auto.parse_pending_topic_entries(
+            "First topic | https://www.youtube.com/watch?v=abc\n"
+            "Second topic\n"
+            "Third topic https://youtu.be/xyz\n"
+        )
+
+        self.assertEqual(entries, [{"line_number": 2, "topic": "Second topic"}])
+
+    def test_mark_topic_completed_appends_link_to_original_line(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            topics_file = f"{temp_dir}/topics.txt"
+            with open(topics_file, "w", encoding="utf-8") as fp:
+                fp.write("First topic\nSecond topic\n")
+
+            full_auto.mark_topic_completed(
+                topics_file,
+                2,
+                "https://www.youtube.com/watch?v=video123",
+            )
+
+            with open(topics_file, "r", encoding="utf-8") as fp:
+                content = fp.read()
+
+        self.assertEqual(
+            content,
+            "First topic\n"
+            "Second topic | https://www.youtube.com/watch?v=video123\n",
+        )
 
     def test_build_schedule_uses_each_daily_time_before_next_day(self):
         topics = ["One", "Two", "Three", "Four", "Five"]

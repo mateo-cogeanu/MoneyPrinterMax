@@ -183,6 +183,8 @@
     "Remove": "Remove",
     "Video Topics": "Video Topics",
     "Video Topics Placeholder": "One topic per line\nExample:\n5 productivity habits that save time\nHow AI tools automate small businesses",
+    "Topics File": "Topics File",
+    "Topics File Help": "Full Auto reads pending topics from {path}. Put one topic per line. Lines with a YouTube link are treated as completed and skipped.",
     "Full Auto Schedule Summary": "{count} videos at {per_day} uploads per day. Publishing runs from {start} to {end}.",
     "Video #": "Video #",
     "Topic": "Topic",
