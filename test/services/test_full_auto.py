@@ -11,6 +11,17 @@ class TestFullAuto(unittest.TestCase):
 
         self.assertEqual(topics, ["First", "Second", "Third"])
 
+    def test_ensure_topics_file_creates_empty_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            topics_file = f"{temp_dir}/topics.txt"
+
+            full_auto.ensure_topics_file(topics_file)
+
+            with open(topics_file, "r", encoding="utf-8") as fp:
+                content = fp.read()
+
+        self.assertEqual(content, "")
+
     def test_parse_pending_topic_entries_skips_completed_links(self):
         entries = full_auto.parse_pending_topic_entries(
             "First topic | https://www.youtube.com/watch?v=abc\n"

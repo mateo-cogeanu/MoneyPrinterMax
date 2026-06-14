@@ -33,11 +33,7 @@ def ensure_topics_file(topics_file: str | Path):
     if path.exists():
         return path
 
-    path.write_text(
-        "5 baking soda cleaning tricks\n"
-        "How AI automates small business tasks\n",
-        encoding="utf-8",
-    )
+    path.write_text("", encoding="utf-8")
     return path
 
 

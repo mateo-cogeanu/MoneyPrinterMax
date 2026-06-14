@@ -19,6 +19,7 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 - Replaced the fixed two daily upload slots with an editable upload-time list so users can add or remove daily publish times.
 - Replaced manual Full Auto topic entry with a repo-local `topics.txt` queue.
 - Full Auto now skips `topics.txt` lines that already contain a YouTube link and appends the scheduled video URL to each completed topic line.
+- `topics.txt` is now a local ignored queue file; first run creates it empty when missing instead of shipping example topics in the repo.
 - Added a schedule preview table showing each topic and its planned publish time.
 - Full Auto generates the script, keywords, YouTube title, and YouTube description for each topic.
 - Full Auto generates each video sequentially, then schedules it on YouTube through the existing OAuth upload service.

@@ -1,5 +1,6 @@
 .DS_Store
 /config.toml
+/topics.txt
 /storage/
 /.idea/
 /app/services/__pycache__
