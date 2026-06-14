@@ -541,6 +541,16 @@ def render_full_auto_mode():
             value=st.session_state.get("paragraph_number_input", 1),
             key="full_auto_paragraph_number",
         )
+        target_duration_seconds = st.selectbox(
+            tr("Target Video Length"),
+            options=[15, 30, 45, 60],
+            index=1,
+            format_func=lambda seconds: tr("Seconds Format").format(
+                seconds=seconds
+            ),
+            help=tr("Target Video Length Help"),
+            key="full_auto_target_duration",
+        )
         auto_params.video_script_prompt = st.text_area(
             tr("Custom Script Requirements"),
             height=100,
@@ -791,7 +801,16 @@ def render_full_auto_mode():
                 video_subject=topic,
                 language=auto_params.video_language,
                 paragraph_number=auto_params.paragraph_number,
-                video_script_prompt=auto_params.video_script_prompt,
+                video_script_prompt="\n".join(
+                    part
+                    for part in [
+                        full_auto.build_duration_script_requirement(
+                            target_duration_seconds
+                        ),
+                        auto_params.video_script_prompt,
+                    ]
+                    if part
+                ),
                 custom_system_prompt="",
             )
             if not script or "Error: " in script:

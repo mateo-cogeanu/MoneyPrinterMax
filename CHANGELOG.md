@@ -16,6 +16,8 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 - Added shared music controls, including random music, no music, existing custom music, or uploading a new custom MP3 for the whole batch.
 - Custom music is now locked before a Full Auto batch starts, and every generated video receives that exact custom file instead of drifting back to random background music.
 - Full Auto now stops with a clear message if `Custom Background Music` is selected without choosing or uploading an MP3.
+- Added a `Target Video Length` control in Full Auto with 15, 30, 45, and 60 second presets.
+- Full Auto now injects a matching spoken-word range into every generated script prompt so batch videos stay closer to the same length.
 - Added focused unit tests for topic parsing and schedule generation.
 
 ### AI: Shorts Script Quality
