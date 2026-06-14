@@ -143,6 +143,7 @@ def _add_ranked_stock_candidates(
     video_items: List[MaterialInfo],
     valid_video_urls,
     target_items: List[MaterialInfo],
+    max_clip_duration: int,
 ) -> float:
     added_duration = 0.0
     for item in rank_stock_candidates(search_term, video_items):
@@ -153,8 +154,26 @@ def _add_ranked_stock_candidates(
             valid_video_urls.add(item.url)
         else:
             valid_video_urls.append(item.url)
-        added_duration += item.duration
+        added_duration += min(max_clip_duration, item.duration)
     return added_duration
+
+
+def _interleave_ranked_candidate_groups(
+    candidate_groups: List[tuple[str, List[MaterialInfo]]],
+) -> List[MaterialInfo]:
+    interleaved_items = []
+    candidate_index = 0
+    while True:
+        added_item = False
+        for _, term_items in candidate_groups:
+            if candidate_index >= len(term_items):
+                continue
+            interleaved_items.append(term_items[candidate_index])
+            added_item = True
+        if not added_item:
+            break
+        candidate_index += 1
+    return interleaved_items
 
 
 def _search_more_stock_candidates(
@@ -184,7 +203,11 @@ def _search_more_stock_candidates(
         )
         logger.info(f"found {len(video_items)} backup videos for '{backup_term}'")
         added_duration += _add_ranked_stock_candidates(
-            backup_term, video_items, valid_video_urls, target_items
+            backup_term,
+            video_items,
+            valid_video_urls,
+            target_items,
+            max_clip_duration,
         )
         if remaining_duration > 0 and added_duration >= remaining_duration:
             break
@@ -551,8 +574,9 @@ def download_videos(
             material_directory=material_directory,
         )
 
-    valid_video_items = []
-    valid_video_urls = []
+    candidate_groups = []
+    group_by_term = {}
+    valid_video_urls = set()
     found_duration = 0.0
     target_duration = _candidate_target_duration(audio_duration, max_clip_duration)
     searched_terms = []
@@ -565,19 +589,23 @@ def download_videos(
         )
         logger.info(f"found {len(video_items)} videos for '{search_term}'")
 
+        term_items = []
         found_duration += _add_ranked_stock_candidates(
-            search_term, video_items, valid_video_urls, valid_video_items
+            search_term,
+            video_items,
+            valid_video_urls,
+            term_items,
+            max_clip_duration,
         )
-
-        if target_duration > 0 and found_duration > target_duration:
-            logger.info("found enough stock video candidates, skip searching more terms")
-            break
+        candidate_groups.append((search_term, term_items))
+        group_by_term[search_term] = term_items
 
     if target_duration > 0 and found_duration < target_duration:
         logger.info(
             f"stock candidates are short ({found_duration:.2f}s/{target_duration:.2f}s), searching backup terms"
         )
         for search_term in search_terms:
+            term_items = group_by_term[search_term]
             found_duration += _search_more_stock_candidates(
                 base_search_term=search_term,
                 searched_terms=searched_terms,
@@ -585,23 +613,33 @@ def download_videos(
                 video_aspect=video_aspect,
                 max_clip_duration=max_clip_duration,
                 valid_video_urls=valid_video_urls,
-                target_items=valid_video_items,
+                target_items=term_items,
                 remaining_duration=target_duration - found_duration,
             )
             if found_duration >= target_duration:
                 break
 
+    valid_video_items = _interleave_ranked_candidate_groups(candidate_groups)
     logger.info(
-        f"found total videos: {len(valid_video_items)}, required duration: {audio_duration} seconds, found duration: {found_duration} seconds"
+        f"found total videos across {len(search_terms)} keywords: {len(valid_video_items)}, "
+        f"required duration: {audio_duration} seconds, usable clip duration: {found_duration} seconds"
     )
     video_paths = []
 
+    selected_video_items = []
+    selected_duration = 0.0
+    for item in valid_video_items:
+        selected_video_items.append(item)
+        selected_duration += min(max_clip_duration, item.duration)
+        if selected_duration > audio_duration:
+            break
+
     concat_mode_value = getattr(video_concat_mode, "value", video_concat_mode)
     if concat_mode_value == VideoConcatMode.random.value:
-        random.shuffle(valid_video_items)
+        random.shuffle(selected_video_items)
 
     total_duration = 0.0
-    for item in valid_video_items:
+    for item in selected_video_items:
         try:
             logger.info(f"downloading video: {item.url}")
             saved_video_path = save_video(
@@ -660,7 +698,11 @@ def _download_videos_by_script_order(
 
         term_items = []
         found_duration += _add_ranked_stock_candidates(
-            search_term, video_items, valid_video_urls, term_items
+            search_term,
+            video_items,
+            valid_video_urls,
+            term_items,
+            max_clip_duration,
         )
 
         if term_items:

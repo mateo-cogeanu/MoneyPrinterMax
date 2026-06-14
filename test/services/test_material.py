@@ -407,6 +407,99 @@ class TestMaterialTlsVerification(unittest.TestCase):
             result, ["/tmp/soda-1.mp4", "/tmp/soda-2.mp4", "/tmp/soda-3.mp4"]
         )
 
+    def test_download_videos_searches_every_keyword_and_interleaves_best_results(self):
+        search_results = {
+            "data privacy": [
+                material.MaterialInfo(
+                    provider="pexels",
+                    url="https://v.example/privacy-1.mp4",
+                    duration=30,
+                    title="data privacy lock",
+                ),
+                material.MaterialInfo(
+                    provider="pexels",
+                    url="https://v.example/privacy-2.mp4",
+                    duration=30,
+                    title="private data dashboard",
+                ),
+            ],
+            "online tracking": [
+                material.MaterialInfo(
+                    provider="pexels",
+                    url="https://v.example/tracking-1.mp4",
+                    duration=30,
+                    title="online tracking analytics",
+                ),
+                material.MaterialInfo(
+                    provider="pexels",
+                    url="https://v.example/tracking-2.mp4",
+                    duration=30,
+                    title="website analytics screen",
+                ),
+            ],
+            "cyber security": [
+                material.MaterialInfo(
+                    provider="pexels",
+                    url="https://v.example/security-1.mp4",
+                    duration=30,
+                    title="cyber security specialist",
+                ),
+                material.MaterialInfo(
+                    provider="pexels",
+                    url="https://v.example/security-2.mp4",
+                    duration=30,
+                    title="computer security code",
+                ),
+            ],
+        }
+        searched_terms = []
+        downloaded_urls = []
+
+        def fake_search(search_term, minimum_duration, video_aspect):
+            searched_terms.append(search_term)
+            return search_results[search_term]
+
+        def fake_save_video(video_url, save_dir=""):
+            downloaded_urls.append(video_url)
+            return f"/tmp/{video_url.rsplit('/', 1)[-1]}"
+
+        with (
+            patch.dict(config.app, {"material_directory": ""}),
+            patch.object(material, "search_videos_pexels", side_effect=fake_search),
+            patch.object(
+                material.llm,
+                "rank_stock_video_candidates",
+                side_effect=lambda search_term, candidate_titles, max_results: list(
+                    range(min(len(candidate_titles), max_results))
+                ),
+            ),
+            patch.object(material, "save_video", side_effect=fake_save_video),
+        ):
+            result = material.download_videos(
+                task_id="all-keywords",
+                search_terms=["data privacy", "online tracking", "cyber security"],
+                source="pexels",
+                audio_duration=8,
+                max_clip_duration=3,
+                video_concat_mode="sequential",
+            )
+
+        self.assertEqual(
+            searched_terms, ["data privacy", "online tracking", "cyber security"]
+        )
+        self.assertEqual(
+            downloaded_urls,
+            [
+                "https://v.example/privacy-1.mp4",
+                "https://v.example/tracking-1.mp4",
+                "https://v.example/security-1.mp4",
+            ],
+        )
+        self.assertEqual(
+            result,
+            ["/tmp/privacy-1.mp4", "/tmp/tracking-1.mp4", "/tmp/security-1.mp4"],
+        )
+
     def test_rank_stock_candidates_batches_ai_for_ambiguous_items(self):
         items = [
             material.MaterialInfo(

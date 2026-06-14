@@ -193,6 +193,15 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 - Ran `python3 -m unittest test.services.test_webui_i18n`; all 4 tests passed.
 - Attempted to run pytest-based checks, but this shell does not have a `python` command, the available `python3` environment does not include `pytest`, and `uv` is not installed.
 
+### Stock Search: Use Every Generated Keyword
+
+- Removed the early exit that stopped stock searches after the first keyword supplied enough nominal footage.
+- Stock search now queries every generated video keyword before choosing which clips to download.
+- AI-ranked candidates are interleaved across keywords, taking each keyword's best result before considering second-ranked results.
+- Random concatenation now shuffles only the final selected shortlist, so lower-ranked candidates cannot displace better cross-keyword matches before downloading.
+- Candidate duration now counts the configured maximum clip duration instead of the full source-file duration, preventing long files from being mistaken for many seconds of unique usable footage.
+- Added regression coverage proving that all keywords are searched even when the first keyword returns long videos.
+
 ### Files Changed
 
 - `AGENTS.md`
