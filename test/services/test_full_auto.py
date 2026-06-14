@@ -97,7 +97,7 @@ class TestFullAuto(unittest.TestCase):
 
         self.assertIn("about 30 seconds", requirement)
         self.assertIn("between 70 and 85 spoken words", requirement)
-        self.assertIn("same length", requirement)
+        self.assertIn("close to this length", requirement)
 
     def test_build_duration_script_requirement_defaults_to_30_seconds(self):
         requirement = full_auto.build_duration_script_requirement(999)

@@ -101,6 +101,6 @@ def build_duration_script_requirement(target_seconds: int) -> str:
     return (
         f"Target the voiceover for about {normalized_seconds} seconds. "
         f"Write between {min_words} and {max_words} spoken words. "
-        "Keep each video in this batch close to the same length. "
-        "Do not make one topic much longer or shorter than the others."
+        "Keep the script close to this length. "
+        "Do not make it much longer or shorter than the target."
     )

@@ -36,6 +36,10 @@ All notable changes for this MoneyPrinterMax customization are documented here.
 - Full Auto now injects a matching spoken-word range into every generated script prompt so batch videos stay closer to the same length.
 - Added focused unit tests for topic parsing and schedule generation.
 
+### WebUI: Create Video Mode
+
+- Added `Target Video Length` to Create Video advanced script settings, using the same script-duration guidance as Full Auto.
+
 ### AI: Shorts Script Quality
 
 - Updated the script-generation prompt so `add a hook` means a short opening hook, not replacing the entire video.

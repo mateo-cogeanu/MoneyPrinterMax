@@ -188,7 +188,7 @@
     "AI Video Settings": "Настройки AI-видео",
     "Target Video Length": "Целевая длина видео",
     "Seconds Format": "{seconds} секунд",
-    "Target Video Length Help": "Полный авто использует это, чтобы сценарии озвучки во всей партии были примерно одинаковой длины.",
+    "Target Video Length Help": "Используется, чтобы сценарии озвучки были близки к выбранной длине.",
     "Music and Voice": "Музыка и голос",
     "Existing Background Music": "Существующая фоновая музыка",
     "Upload New Background Music": "Загрузить новую фоновую музыку",

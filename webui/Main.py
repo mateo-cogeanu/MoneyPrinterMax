@@ -1603,6 +1603,16 @@ with left_panel:
                 value=st.session_state.get("paragraph_number_input", 1),
                 key="paragraph_number_input",
             )
+            target_duration_seconds = st.selectbox(
+                tr("Target Video Length"),
+                options=[15, 30, 45, 60],
+                index=1,
+                format_func=lambda seconds: tr("Seconds Format").format(
+                    seconds=seconds
+                ),
+                help=tr("Target Video Length Help"),
+                key="target_duration_seconds",
+            )
             params.video_script_prompt = st.text_area(
                 tr("Custom Script Requirements"),
                 height=100,
@@ -1636,7 +1646,16 @@ with left_panel:
                     video_subject=params.video_subject,
                     language=params.video_language,
                     paragraph_number=params.paragraph_number,
-                    video_script_prompt=params.video_script_prompt,
+                    video_script_prompt="\n".join(
+                        part
+                        for part in [
+                            full_auto.build_duration_script_requirement(
+                                target_duration_seconds
+                            ),
+                            params.video_script_prompt,
+                        ]
+                        if part
+                    ),
                     custom_system_prompt=params.custom_system_prompt,
                 )
                 terms = llm.generate_terms(

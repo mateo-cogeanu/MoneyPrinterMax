@@ -192,7 +192,7 @@
     "AI Video Settings": "AI Video Settings",
     "Target Video Length": "Target Video Length",
     "Seconds Format": "{seconds} seconds",
-    "Target Video Length Help": "Full Auto uses this to keep the generated voiceover scripts close to the same length across the whole batch.",
+    "Target Video Length Help": "Uses this to keep generated voiceover scripts close to the selected length.",
     "Music and Voice": "Music and Voice",
     "Existing Background Music": "Existing Background Music",
     "Upload New Background Music": "Upload New Background Music",
