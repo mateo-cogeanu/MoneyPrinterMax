@@ -85,6 +85,7 @@ def _exchange_code_for_credentials(client_secret_file: str, credentials_cls):
             auth_result["code"] = params.get("code", [""])[0]
             auth_result["state"] = params.get("state", [""])[0]
             auth_result["error"] = params.get("error", [""])[0]
+            auth_result["error_description"] = params.get("error_description", [""])[0]
 
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
@@ -98,9 +99,9 @@ def _exchange_code_for_credentials(client_secret_file: str, credentials_cls):
         def log_message(self, format, *args):
             return
 
-    server = HTTPServer(("localhost", 0), OAuthCallbackHandler)
+    server = HTTPServer(("127.0.0.1", 0), OAuthCallbackHandler)
     server.timeout = 300
-    redirect_uri = f"http://localhost:{server.server_port}/"
+    redirect_uri = f"http://127.0.0.1:{server.server_port}/"
     state = secrets.token_urlsafe(24)
     auth_url = f"{auth_uri}?{urlencode({
         'client_id': client_id,
@@ -117,7 +118,8 @@ def _exchange_code_for_credentials(client_secret_file: str, credentials_cls):
     server.server_close()
 
     if auth_result.get("error"):
-        raise RuntimeError(f"YouTube authorization failed: {auth_result['error']}")
+        details = auth_result.get("error_description") or auth_result["error"]
+        raise RuntimeError(f"YouTube authorization failed: {details}")
     if not auth_result.get("code"):
         raise TimeoutError("Timed out waiting for YouTube authorization.")
     if auth_result.get("state") != state:

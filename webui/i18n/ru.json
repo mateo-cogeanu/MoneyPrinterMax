@@ -172,6 +172,8 @@
     "YouTube Automation Help": "Загружайте созданные видео на YouTube сразу или планируйте публикацию с помощью JSON OAuth-клиента Google.",
     "YouTube OAuth Client JSON": "JSON OAuth-клиента YouTube",
     "YouTube OAuth Client JSON Help": "Путь к client_secret JSON из Google Cloud Console. Храните этот файл приватно и вне git.",
+    "YouTube OAuth Troubleshooting": "Диагностика OAuth YouTube",
+    "YouTube OAuth Troubleshooting Help": "Если Google сообщает, что приложение заблокировано или не подтверждено, откройте Google Cloud Console, перейдите на экран согласия OAuth и добавьте свой Google-аккаунт как тестового пользователя или опубликуйте/подтвердите приложение. Если Google сообщает redirect_uri_mismatch, создайте OAuth-клиент типа Desktop app, скачайте новый client_secret JSON и выберите этот файл здесь.",
     "Connect YouTube": "Подключить YouTube",
     "Forget YouTube Login": "Забыть вход YouTube",
     "YouTube Connected": "YouTube подключен.",

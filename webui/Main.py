@@ -290,6 +290,9 @@ def render_youtube_automation_mode():
     ).strip()
     config.app["youtube_client_secret_file"] = client_secret_file
 
+    with st.expander(tr("YouTube OAuth Troubleshooting")):
+        st.markdown(tr("YouTube OAuth Troubleshooting Help"))
+
     auth_cols = st.columns([1, 1, 2])
     with auth_cols[0]:
         if st.button(tr("Connect YouTube"), use_container_width=True):
